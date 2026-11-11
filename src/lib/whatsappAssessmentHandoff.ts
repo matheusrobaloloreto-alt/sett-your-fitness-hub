@@ -18,6 +18,26 @@ interface PersistedWhatsAppAssessmentHandoff {
 const STORAGE_KEY = "sett:whatsapp-assessment-handoff:v1";
 const MAX_AGE_MS = 15 * 60_000;
 
+export function resolveWhatsAppAssessmentReturnTo(
+  location: { pathname: string; search: string; hash: string },
+  targetProfilePath: string,
+): string | null {
+  const targetPathname = targetProfilePath.replace(/\/+$/, "");
+  let returnTo = `${location.pathname}${location.search}${location.hash}`;
+
+  while (returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+    // eslint-disable-next-line no-control-regex -- URL parsing strips these characters and can turn a local path into an external URL.
+    if (/[\u0000-\u001f\u007f]/.test(returnTo)) return null;
+    if (returnTo.split(/[?#]/, 1)[0].includes("\\")) return null;
+    const url = new URL(returnTo, "https://sett.invalid");
+    if (url.origin !== "https://sett.invalid") return null;
+    if (url.pathname.replace(/\/+$/, "") !== targetPathname) return returnTo;
+    returnTo = url.searchParams.get("returnTo") || "";
+  }
+
+  return null;
+}
+
 export function isWhatsAppAssessmentVideoHandoff(value: unknown): value is WhatsAppAssessmentVideoHandoff {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<WhatsAppAssessmentVideoHandoff>;

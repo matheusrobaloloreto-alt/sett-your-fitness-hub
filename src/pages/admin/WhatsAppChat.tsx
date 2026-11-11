@@ -62,7 +62,7 @@ import {
 } from "@/lib/whatsappMediaUpload";
 import { shouldOfferWhatsAppRecipientReview } from "@/lib/whatsappRecipientReview";
 import { recordAppPerformanceSample } from "@/lib/appPerformanceTelemetry";
-import { persistWhatsAppAssessmentHandoff } from "@/lib/whatsappAssessmentHandoff";
+import { persistWhatsAppAssessmentHandoff, resolveWhatsAppAssessmentReturnTo } from "@/lib/whatsappAssessmentHandoff";
 import {
   messageEditEligibility,
   normalizeEditedMessageText,
@@ -3596,11 +3596,12 @@ export default function WhatsAppChat({
                                         mediaStoragePath: msg.media_storage_path || null,
                                       };
                                       persistWhatsAppAssessmentHandoff(handoff);
-                                      const returnTo = `${location.pathname}${location.search}${location.hash}`;
-                                      const targetSearch = new URLSearchParams({
-                                        tab: "integrada",
-                                        returnTo,
-                                      });
+                                      const returnTo = resolveWhatsAppAssessmentReturnTo(
+                                        location,
+                                        `/${studioRoutePrefix}/students/${selectedChat.student_id}`,
+                                      );
+                                      const targetSearch = new URLSearchParams({ tab: "integrada" });
+                                      if (returnTo) targetSearch.set("returnTo", returnTo);
                                       navigate(`/${studioRoutePrefix}/students/${selectedChat.student_id}?${targetSearch.toString()}`, {
                                         state: {
                                           studentId: selectedChat.student_id,

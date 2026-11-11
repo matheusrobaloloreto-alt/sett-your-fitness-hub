@@ -6,6 +6,7 @@ import {
   persistWhatsAppAssessmentHandoff,
   resolveStudioWhatsAppAssessmentHandoff,
   resolveWhatsAppAssessmentHandoff,
+  resolveWhatsAppAssessmentReturnTo,
   type WhatsAppAssessmentVideoHandoff,
 } from "./whatsappAssessmentHandoff";
 
@@ -35,6 +36,65 @@ const handoff: WhatsAppAssessmentVideoHandoff = {
   messageExternalId: "provider-1",
   mediaStoragePath: "company-1/chat-1/video.mp4",
 };
+
+describe("WhatsApp assessment return navigation", () => {
+  const profilePath = "/admin/students/student-1";
+  const chatPath = "/admin/whatsapp-chat?chatId=chat-1&filter=with%20video#message-1";
+  const locationFor = (path: string) => new URL(path, "https://sett.invalid");
+  const transferToProfile = (from: string) => {
+    const returnTo = resolveWhatsAppAssessmentReturnTo(locationFor(from), profilePath);
+    const search = new URLSearchParams({ tab: "integrada" });
+    if (returnTo) search.set("returnTo", returnTo);
+    return `${profilePath}?${search.toString()}`;
+  };
+
+  it("keeps repeated transfers at one return target with the original chat query and hash", () => {
+    const firstTransfer = transferToProfile(chatPath);
+    let currentPath = firstTransfer;
+
+    for (let transfer = 0; transfer < 5; transfer += 1) {
+      currentPath = transferToProfile(currentPath);
+      expect(currentPath).toBe(firstTransfer);
+      expect(locationFor(currentPath).searchParams.get("returnTo")).toBe(chatPath);
+    }
+  });
+
+  it("unwraps an existing recursive profile chain to the original return target", () => {
+    let nestedPath = chatPath;
+    for (let transfer = 0; transfer < 5; transfer += 1) {
+      nestedPath = `${profilePath}?tab=integrada&returnTo=${encodeURIComponent(nestedPath)}#avaliacao`;
+    }
+
+    expect(resolveWhatsAppAssessmentReturnTo(locationFor(nestedPath), profilePath)).toBe(chatPath);
+    expect(transferToProfile(nestedPath)).toBe(transferToProfile(chatPath));
+  });
+
+  it("uses the normal profile fallback when a same-profile chain has no return destination", () => {
+    const selfPath = `${profilePath}?tab=integrada#avaliacao`;
+    const nestedPath = `${profilePath}/?returnTo=${encodeURIComponent(selfPath)}`;
+
+    expect(resolveWhatsAppAssessmentReturnTo(locationFor(selfPath), profilePath)).toBeNull();
+    expect(transferToProfile(nestedPath)).toBe(`${profilePath}?tab=integrada`);
+    expect(transferToProfile(transferToProfile(nestedPath))).toBe(`${profilePath}?tab=integrada`);
+  });
+
+  it("preserves other routes and student profiles, including their existing return query and hash", () => {
+    const otherProfile = "/admin/students/student-2?tab=program&returnTo=%2Fadmin%2Fstudents#treino";
+    const chatWithBackslashes = "/admin/whatsapp-chat?search=a\\b#message\\1";
+
+    expect(resolveWhatsAppAssessmentReturnTo(locationFor(chatPath), profilePath)).toBe(chatPath);
+    expect(resolveWhatsAppAssessmentReturnTo(locationFor(otherProfile), profilePath)).toBe(otherProfile);
+    expect(resolveWhatsAppAssessmentReturnTo(locationFor(chatWithBackslashes), profilePath)).toBe(chatWithBackslashes);
+  });
+
+  it.each(["https://example.com/path", "//example.com/path", "/\\example.com/path", "/\n/example.com/path", "/\t/example.com/path", "/\r/example.com/path", "javascript:alert(1)"])(
+    "uses the normal profile fallback for an unsafe nested return target %s",
+    (returnTo) => {
+      const currentPath = `${profilePath}?returnTo=${encodeURIComponent(returnTo)}`;
+      expect(resolveWhatsAppAssessmentReturnTo(locationFor(currentPath), profilePath)).toBeNull();
+    },
+  );
+});
 
 describe("WhatsApp -> Studio assessment handoff", () => {
   it("transfers stable chat, message and student ids plus the persisted media path", async () => {
@@ -114,8 +174,13 @@ describe("WhatsApp -> Studio assessment handoff", () => {
   });
 
   it("validates tenant, student, chat and message before loading private media", async () => {
-    const assessment = await read("src/components/VideoAssessment.tsx");
+    const [assessment, component] = await Promise.all([
+      read("src/lib/whatsappAssessmentVideo.ts"),
+      read("src/components/VideoAssessment.tsx"),
+    ]);
 
+    expect(component).toContain('import { resolveWhatsAppAssessmentVideoBlob } from "@/lib/whatsappAssessmentVideo"');
+    expect(component).toContain("await resolveWhatsAppAssessmentVideoBlob({");
     expect(assessment).toContain('.from("whatsapp_chats")');
     expect(assessment).toContain('.eq("company_id", companyId)');
     expect(assessment).toContain('.eq("student_id", studentId)');
