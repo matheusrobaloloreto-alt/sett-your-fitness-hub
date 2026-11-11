@@ -36,8 +36,8 @@ export default function PlatformProductSettings() {
     catch(cause){if(current(scope,generation))setError(cause instanceof Error?cause.message:"Falha ao salvar.");}
     finally{if(current(scope,generation)){scope.pending=false;setBusy(false);}}
   };
-  return <main className="p-4 md:p-6 space-y-6 max-w-6xl">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-semibold">Configuração da plataforma</h1><div className="flex gap-2"><Button variant="outline" onClick={load} disabled={busy}><RefreshCw className="w-4 h-4 mr-2" />Recarregar</Button><Button onClick={save} disabled={busy || !record}><Save className="w-4 h-4 mr-2" />Salvar</Button></div></div>
+  return <main className="sett-master-page p-4 md:p-6 space-y-6 max-w-6xl">
+    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-semibold">Configuração da plataforma</h1><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={load} disabled={busy}><RefreshCw className="w-4 h-4 mr-2" />Recarregar</Button><Button onClick={save} disabled={busy || !record}><Save className="w-4 h-4 mr-2" />Salvar</Button></div></div>
     {error && <p role="alert" className="text-destructive">{error}</p>}{notice && <p role="status">{notice}</p>}
     {record && <fieldset disabled={busy} className="space-y-6">
       <section><h2 className="text-lg font-medium mb-4">Catálogo SETT</h2><p className="text-sm text-muted-foreground mb-4">Preço de referência em reais por mês. O preço de cobrança é validado no Stripe ao criar um novo checkout. Alterações não migram assinaturas.</p>

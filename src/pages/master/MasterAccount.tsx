@@ -37,7 +37,7 @@ export default function MasterAccount() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-xl">
+    <div className="sett-master-page p-6 space-y-6 max-w-xl">
       <div>
         <h1 className="text-3xl font-bold text-foreground">Minha Conta</h1>
         <p className="text-muted-foreground font-sans">Gerencie suas credenciais de acesso.</p>

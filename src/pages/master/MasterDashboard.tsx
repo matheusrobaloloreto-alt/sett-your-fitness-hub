@@ -99,13 +99,13 @@ export default function MasterDashboard() {
 
   return (
     <>
-      <div className="p-6 space-y-6">
+      <div className="sett-master-page p-6 space-y-6">
         <h1 className="text-3xl font-bold text-foreground">Painel Master</h1>
         <p className="text-muted-foreground font-sans">Visão global de todas as instâncias da plataforma.</p>
 
         {viewingCompany ? (
           <Card className="border-primary/40 bg-primary/5">
-            <CardContent className="flex items-center justify-between gap-4 py-4">
+            <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
               <div className="flex items-start gap-3">
                 <Building2 className="h-5 w-5 text-primary mt-0.5" />
                 <div>
@@ -195,7 +195,7 @@ export default function MasterDashboard() {
             <CardContent>
               <div className="space-y-2">
                 {storageInfo.map((s) => (
-                  <div key={s.companyName} className="flex items-center justify-between p-2 rounded-md bg-secondary">
+                  <div key={s.companyName} className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-md bg-secondary">
                     <span className="text-sm font-sans text-foreground">{s.companyName}</span>
                     <Badge variant="outline">{s.videoCount} vídeo{s.videoCount !== 1 ? "s" : ""}</Badge>
                   </div>
@@ -230,17 +230,17 @@ export default function MasterDashboard() {
                 {companies.slice(0, 5).map((c) => (
                   <div
                     key={c.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors"
+                    className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors"
                     onClick={() => navigate(`/master/companies`)}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
                       <Building2 className="h-5 w-5 text-muted-foreground" />
                       <div>
                         <p className="font-medium text-foreground">{c.name}</p>
                         <p className="text-xs text-muted-foreground font-sans">{c.slug || "sem slug"}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant={tierColor[c.tier] as any || "secondary"}>
                         {planNames[c.tier] || tierLabel[c.tier] || c.tier}
                       </Badge>

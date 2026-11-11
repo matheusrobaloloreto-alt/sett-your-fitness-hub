@@ -208,8 +208,8 @@ export default function CompaniesManager() {
   return (
     <>
       <Dialog open={!!editing} onOpenChange={open => { if (!open && !savingIdentity) setEditing(null); }}><DialogContent><DialogHeader><DialogTitle>Identidade da empresa</DialogTitle></DialogHeader><Label htmlFor="company-name">Nome</Label><Input id="company-name" value={identity.name} maxLength={120} onChange={e => setIdentity(v => ({ ...v,name:e.target.value }))} /><Label htmlFor="company-slug">Slug</Label><Input id="company-slug" value={identity.slug} maxLength={80} onChange={e => setIdentity(v => ({ ...v,slug:e.target.value }))} /><p className="text-sm text-muted-foreground">Transferência de proprietário exige um fluxo separado com verificação de identidade.</p><Button disabled={savingIdentity} onClick={saveIdentity}>Salvar identidade</Button></DialogContent></Dialog>
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="sett-master-page p-6 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Gestão de Empresas</h1>
             <p className="text-muted-foreground font-sans">Gerencie todas as instâncias e assinaturas da plataforma.</p>
@@ -375,7 +375,7 @@ export default function CompaniesManager() {
                                   onClick={() => handleCreateCheckout(company.id, tier)}
                                 >
                                   <CardContent className="py-3">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
                                       <div>
                                         <p className="font-medium">{tierLabel[tier]}</p>
                                         <p className="text-xs text-muted-foreground">

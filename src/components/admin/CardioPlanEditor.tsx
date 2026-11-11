@@ -136,21 +136,21 @@ export function CardioPlanEditor({ modality, plan, onChange, onSave, saving = fa
   };
 
   return (
-    <section className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3" aria-label={`Editor de ${label}`}>
+    <section className="mt-3 min-w-0 break-words rounded-xl border border-border bg-muted/50 p-3" aria-label={`Editor de ${label}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-[#1B2B4A]">Revisar e editar {label}</h3>
-          <p className="text-xs text-slate-500">A versão salva substitui este plano no app do aluno.</p>
+          <h3 className="font-semibold text-primary">Revisar e editar {label}</h3>
+          <p className="text-xs text-muted-foreground">A versão salva substitui este plano no app do aluno.</p>
         </div>
         {saved && <span className="text-xs font-medium text-emerald-700">Alterações salvas</span>}
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <label className="text-xs font-medium text-slate-600">
+        <label className="text-xs font-medium text-muted-foreground">
           Nome do plano
           <Input className="mt-1 h-9" value={plan.plan_name || ""} onChange={(event) => updatePlan("plan_name", event.target.value)} />
         </label>
-        <label className="text-xs font-medium text-slate-600">
+        <label className="text-xs font-medium text-muted-foreground">
           Objetivo
           <Input className="mt-1 h-9" value={plan.goal || ""} onChange={(event) => updatePlan("goal", event.target.value)} />
         </label>
@@ -158,12 +158,12 @@ export function CardioPlanEditor({ modality, plan, onChange, onSave, saving = fa
 
       <div className="mt-3 space-y-2">
         {weeks.map((week, weekIndex) => (
-          <details key={week.week_number ?? weekIndex} className="rounded-lg border border-slate-200 bg-white" open={weekIndex === 0}>
-            <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-[#1B2B4A]">
+          <details key={week.week_number ?? weekIndex} className="rounded-lg border border-border bg-card" open={weekIndex === 0}>
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-primary">
               Semana {week.week_number ?? weekIndex + 1} · {week.focus || "Sem foco definido"}
             </summary>
-            <div className="space-y-3 border-t border-slate-100 p-3">
-              <label className="block text-xs font-medium text-slate-600">
+            <div className="space-y-3 border-t border-border p-3">
+              <label className="block text-xs font-medium text-muted-foreground">
                 Foco da semana {week.week_number ?? weekIndex + 1}
                 <Input className="mt-1 h-9" value={week.focus || ""} onChange={(event) => updateWeek(weekIndex, "focus", event.target.value)} />
               </label>
@@ -172,25 +172,25 @@ export function CardioPlanEditor({ modality, plan, onChange, onSave, saving = fa
                 const weekNumber = week.week_number ?? weekIndex + 1;
                 const sessionNumber = sessionIndex + 1;
                 return (
-                  <div key={sessionIndex} className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-[#8B7355]">Sessão {sessionNumber}</p>
+                  <div key={sessionIndex} className="rounded-lg border border-border bg-muted/50 p-2.5">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">Sessão {sessionNumber}</p>
                       <button
                         type="button"
                         aria-label={`Remover sessão ${sessionNumber} da semana ${weekNumber}`}
                         disabled={(week.sessions || []).length <= 1}
                         onClick={() => removeSession(weekIndex, sessionIndex)}
-                        className="inline-flex items-center gap-1 text-xs text-red-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                        className="inline-flex items-center gap-1 text-xs text-red-600 disabled:cursor-not-allowed disabled:text-muted-foreground"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Remover
                       </button>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <label className="text-xs text-slate-600">
+                      <label className="text-xs text-muted-foreground">
                         Dia
                         <Input className="mt-1 h-8" value={session.day || ""} onChange={(event) => updateSession(weekIndex, sessionIndex, "day", event.target.value)} />
                       </label>
-                      <label className="text-xs text-slate-600">
+                      <label className="text-xs text-muted-foreground">
                         Título
                         <Input
                           aria-label={`Título da sessão ${sessionNumber} da semana ${weekNumber}`}
@@ -199,21 +199,21 @@ export function CardioPlanEditor({ modality, plan, onChange, onSave, saving = fa
                           onChange={(event) => updateSession(weekIndex, sessionIndex, "title", event.target.value)}
                         />
                       </label>
-                      <label className="text-xs text-slate-600">
+                      <label className="text-xs text-muted-foreground">
                         Tipo
                         <Input className="mt-1 h-8" value={session.type || ""} onChange={(event) => updateSession(weekIndex, sessionIndex, "type", event.target.value)} />
                       </label>
-                      <label className="text-xs text-slate-600">
+                      <label className="text-xs text-muted-foreground">
                         Zona / alvo de FC
-                        <div className="mt-1 grid grid-cols-[5rem_1fr] gap-1">
+                        <div className="mt-1 grid grid-cols-[5rem_minmax(0,1fr)] gap-1">
                           <Input className="h-8" value={session.zone || ""} onChange={(event) => updateSession(weekIndex, sessionIndex, "zone", event.target.value)} />
                           <Input className="h-8" value={session.fc_target || ""} onChange={(event) => updateSession(weekIndex, sessionIndex, "fc_target", event.target.value)} />
                         </div>
                       </label>
                     </div>
-                    <div className="mt-2 grid grid-cols-4 gap-1">
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-1">
                       {(["warmup_min", "main_min", "cooldown_min", "distance_km"] as const).map((field) => (
-                        <label key={field} className="text-[10px] uppercase text-slate-500">
+                        <label key={field} className="text-[10px] uppercase text-muted-foreground">
                           {field === "warmup_min" ? "Aquec." : field === "main_min" ? "Principal" : field === "cooldown_min" ? "Volta" : "Dist. km"}
                           <Input
                             type="number"
@@ -231,19 +231,19 @@ export function CardioPlanEditor({ modality, plan, onChange, onSave, saving = fa
                         </label>
                       ))}
                     </div>
-                    <label className="mt-2 block text-xs text-slate-600">
+                    <label className="mt-2 block text-xs text-muted-foreground">
                       Intervalos
                       <Input className="mt-1 h-8" value={session.intervals || ""} onChange={(event) => updateSession(weekIndex, sessionIndex, "intervals", event.target.value || null)} />
                     </label>
-                    <label className="mt-2 block text-xs text-slate-600">
+                    <label className="mt-2 block text-xs text-muted-foreground">
                       Observações
-                      <textarea className="mt-1 min-h-16 w-full rounded-md border border-input bg-white px-3 py-2 text-xs" value={session.notes || ""} onChange={(event) => updateSession(weekIndex, sessionIndex, "notes", event.target.value)} />
+                      <textarea className="mt-1 min-h-16 w-full min-w-0 max-w-full rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={session.notes || ""} onChange={(event) => updateSession(weekIndex, sessionIndex, "notes", event.target.value)} />
                     </label>
                   </div>
                 );
               })}
 
-              <button type="button" onClick={() => addSession(weekIndex)} className="inline-flex items-center gap-1 text-xs font-medium text-[#1B2B4A] underline">
+              <button type="button" onClick={() => addSession(weekIndex)} className="inline-flex items-center gap-1 text-xs font-medium text-primary underline">
                 <Plus className="h-3.5 w-3.5" /> Adicionar sessão
               </button>
             </div>
@@ -251,9 +251,9 @@ export function CardioPlanEditor({ modality, plan, onChange, onSave, saving = fa
         ))}
       </div>
 
-      <label className="mt-3 block text-xs font-medium text-slate-600">
+      <label className="mt-3 block text-xs font-medium text-muted-foreground">
         Orientações gerais
-        <textarea className="mt-1 min-h-20 w-full rounded-md border border-input bg-white px-3 py-2 text-xs" value={plan.general_tips || ""} onChange={(event) => updatePlan("general_tips", event.target.value)} />
+        <textarea className="mt-1 min-h-20 w-full min-w-0 max-w-full rounded-xl border border-input bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={plan.general_tips || ""} onChange={(event) => updatePlan("general_tips", event.target.value)} />
       </label>
 
       <Button
@@ -262,7 +262,7 @@ export function CardioPlanEditor({ modality, plan, onChange, onSave, saving = fa
         disabled={saving}
         onClick={() => onSave(plan)}
         aria-label={`Salvar alterações de ${label}`}
-        className="mt-3 w-full border-[#1B2B4A] text-[#1B2B4A] hover:bg-[#1B2B4A]/5"
+        className="mt-3 w-full border-primary text-primary hover:bg-primary/5"
       >
         <Save className="mr-2 h-4 w-4" /> {saving ? "Salvando…" : `Salvar alterações de ${label}`}
       </Button>

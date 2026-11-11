@@ -396,7 +396,7 @@ export function WhatsAppConnectionPanel({ embedded = false }: { embedded?: boole
             {/* QR Code */}
             {state === "waiting_qr" && qrcode && (
               <div className="flex flex-col items-center gap-3">
-                <div className="border rounded-lg p-3 bg-white">
+                <div className="border border-border rounded-xl p-3 bg-card">
                   <img
                     src={qrcode.startsWith("data:") ? qrcode : `data:image/png;base64,${qrcode}`}
                     alt="QR Code WhatsApp"

@@ -1564,7 +1564,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
     });
     const youtubeThumb = videoUrl ? youtubeIdFromUrl(videoUrl) : null;
     const poster = thumbUrl || (youtubeThumb ? `https://i.ytimg.com/vi/${youtubeThumb}/hqdefault.jpg` : null);
-    const className = "relative h-11 w-14 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm";
+    const className = "relative h-11 w-14 shrink-0 overflow-hidden rounded-xl border border-border bg-muted shadow-sm";
     const content = (
       <>
         {poster ? (
@@ -1573,13 +1573,13 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
           <video src={videoUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" />
         ) : (
           <span className="flex h-full w-full items-center justify-center">
-            <Dumbbell className="h-4 w-4 text-slate-400" />
+            <Dumbbell className="h-4 w-4 text-muted-foreground" />
           </span>
         )}
         {videoUrl && (
           <span className="absolute inset-0 flex items-center justify-center bg-black/15">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/90 shadow-sm">
-              <Play className="h-3 w-3 fill-[#1B2B4A] text-[#1B2B4A]" />
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-card/90 shadow-sm">
+              <Play className="h-3 w-3 fill-primary text-primary" />
             </span>
           </span>
         )}
@@ -1597,7 +1597,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
     return (
       <button
         type="button"
-        className={`${className} hover:ring-2 hover:ring-[#1B2B4A]/20`}
+        className={`${className} hover:ring-2 hover:ring-ring/20`}
         title="Abrir vídeo do exercício"
         onClick={(event) => {
           event.stopPropagation();
@@ -1834,23 +1834,23 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
   }
 
   const statusIcon = (s: GenStatus) => {
-    if (s === "generating") return <Loader2 className="h-4 w-4 animate-spin text-[#8B7355]" />;
+    if (s === "generating") return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
     if (s === "done")       return <CheckCircle2 className="h-4 w-4 text-green-500" />;
     if (s === "error")      return <AlertCircle className="h-4 w-4 text-red-500" />;
-    return <Circle className="h-4 w-4 text-slate-300" />;
+    return <Circle className="h-4 w-4 text-muted-foreground" />;
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 space-y-5">
+    <div className="mx-auto w-full min-w-0 max-w-3xl space-y-5 break-words p-0 sm:p-4">
       <Dialog
         open={!!exerciseVideoPlayer}
         onOpenChange={(open) => {
           if (!open) setExerciseVideoPlayer(null);
         }}
       >
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl overflow-hidden rounded-2xl border-0 bg-white p-0 shadow-2xl sm:rounded-2xl">
-          <DialogHeader className="border-b border-slate-100 px-5 py-4 pr-12 text-left">
-            <DialogTitle className="truncate text-lg text-[#1B2B4A]">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl overflow-hidden rounded-2xl border-0 bg-card p-0 shadow-2xl sm:rounded-2xl">
+          <DialogHeader className="border-b border-border px-5 py-4 pr-12 text-left">
+            <DialogTitle className="truncate text-lg text-primary">
               {exerciseVideoPlayer?.title || "Vídeo do exercício"}
             </DialogTitle>
           </DialogHeader>
@@ -1883,10 +1883,10 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
       </Dialog>
 
       <div className="flex items-center gap-3 pt-1">
-        <div className="h-11 w-11 rounded-xl bg-[#1B2B4A] flex items-center justify-center text-white font-black tracking-tight shadow-sm">BN</div>
-        <div className="leading-tight">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-800">Prescrição Integrada</h1>
+        <div className="h-11 w-11 shrink-0 rounded-xl bg-primary flex items-center justify-center text-primary-foreground font-black tracking-tight shadow-sm">BN</div>
+        <div className="min-w-0 leading-tight">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-bold text-foreground">Prescrição Integrada</h1>
             <BnitoContextButton
               studentId={studentId || undefined}
               label="studio de prescricao"
@@ -1894,7 +1894,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
               question="Me orienta no fluxo completo deste aluno: anamnese, avaliacao, prescricao e PDF?"
             />
           </div>
-          <p className="text-xs text-[#8B7355] font-medium">Anamnese → Avaliação → Prescrições integradas → PDFs</p>
+          <p className="text-xs text-primary font-medium">Anamnese → Avaliação → Prescrições integradas → PDFs</p>
         </div>
       </div>
 
@@ -1902,7 +1902,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
       {!isEmbedded && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
               Aluno
               <BnitoContextButton
                 studentId={studentId || undefined}
@@ -1932,7 +1932,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   <div
                     id="studio-student-options"
                     role="listbox"
-                    className="absolute z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg"
+                    className="absolute z-30 mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
                   >
                     {filteredStudents.length ? filteredStudents.map((s) => (
                       <button
@@ -1943,36 +1943,36 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                         aria-selected={s.id === studentId}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => selectStudent(s.id)}
-                        className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-slate-50 ${
-                          s.id === studentId ? "bg-[#1B2B4A]/5 font-semibold text-[#1B2B4A]" : "text-slate-700"
+                        className={`flex w-full min-w-0 flex-wrap items-center justify-between gap-y-1 px-4 py-3 text-left text-sm transition-colors hover:bg-muted/50 ${
+                          s.id === studentId ? "bg-primary/5 font-semibold text-primary" : "text-foreground"
                         }`}
                       >
                         <span>{s.name}</span>
-                        {s.email && <span className="ml-3 truncate text-xs text-slate-400">{s.email}</span>}
+                        {s.email && <span className="min-w-0 max-w-full break-all text-xs text-muted-foreground">{s.email}</span>}
                       </button>
                     )) : (
-                      <div className="px-4 py-3 text-sm text-slate-500">Nenhum aluno encontrado.</div>
+                      <div className="px-4 py-3 text-sm text-muted-foreground">Nenhum aluno encontrado.</div>
                     )}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+              <div className="rounded-lg border border-dashed border-border bg-muted/50 p-4 text-sm text-muted-foreground">
                 Nenhum aluno encontrado para esta empresa.
               </div>
             )}
             {studentId && (
               <div className="space-y-2">
-                <Button onClick={sendAnamneseWhatsApp} disabled={creatingInvite} className="w-full bg-[#1B2B4A] hover:bg-[#1B2B4A]/90 text-white">
+                <Button onClick={sendAnamneseWhatsApp} disabled={creatingInvite} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground h-auto min-h-10 max-w-full whitespace-normal break-words">
                   {creatingInvite ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
                   Abrir conversa interna com a anamnese
                 </Button>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <Button onClick={createInviteAndCopy} disabled={creatingInvite} variant="outline">
+                  <Button onClick={createInviteAndCopy} disabled={creatingInvite} variant="outline" className="h-auto min-h-10 max-w-full whitespace-normal break-words">
                     {creatingInvite ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : inviteLink ? <Copy className="h-4 w-4 mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                     {inviteLink ? (copying ? "Link copiado" : "Copiar anamnese") : "Gerar link de anamnese"}
                   </Button>
-                  <Button onClick={() => setTab("prescricao")} variant="outline">
+                  <Button onClick={() => setTab("prescricao")} variant="outline" className="h-auto min-h-10 max-w-full whitespace-normal break-words">
                     <Wand2 className="h-4 w-4 mr-2" /> Fazer prescrição
                   </Button>
                 </div>
@@ -1981,7 +1981,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
             {inviteLink && (
               <div className="flex gap-2">
                 <Input value={inviteLink} readOnly className="text-sm" />
-                <Button onClick={copyLink} variant="outline">
+                <Button onClick={copyLink} variant="outline" className="h-auto min-h-10 max-w-full whitespace-normal break-words">
                   {copying ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
@@ -1992,7 +1992,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
       {studentId && (
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid grid-cols-3 w-full">
+          <TabsList className="grid h-auto min-h-10 w-full grid-cols-3 [&>[role=tab]]:whitespace-normal [&>[role=tab]]:break-words [&>[role=tab]]:px-2">
             <TabsTrigger value="anamnese">1. Anamnese</TabsTrigger>
             <TabsTrigger value="avaliacao">2. Avaliação</TabsTrigger>
             <TabsTrigger value="prescricao">3. Prescrição</TabsTrigger>
@@ -2012,7 +2012,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   />
                 </div>
                 {anamneseLoading ? (
-                  <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Carregando anamnese deste aluno...
                   </div>
                 ) : anamneseLoadError ? (
@@ -2030,13 +2030,13 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                     <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
                       <CheckCircle2 className="h-4 w-4" /> Anamnese respondida pelo aluno
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm text-slate-600 mt-2">
-                      <div>Objetivo: <span className="font-medium text-slate-800">{anamnese.objective || "—"}</span></div>
-                      <div>Nível: <span className="font-medium text-slate-800">{anamnese.activity_level || "—"}</span></div>
-                      <div>Modalidade: <span className="font-medium text-slate-800">{anamnese.training_modality || "—"}</span></div>
-                      <div>Dias força/sem: <span className="font-medium text-slate-800">{anamnese.days_per_week_strength ?? "—"}</span></div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 text-sm text-muted-foreground mt-2">
+                      <div>Objetivo: <span className="font-medium text-foreground">{anamnese.objective || "—"}</span></div>
+                      <div>Nível: <span className="font-medium text-foreground">{anamnese.activity_level || "—"}</span></div>
+                      <div>Modalidade: <span className="font-medium text-foreground">{anamnese.training_modality || "—"}</span></div>
+                      <div>Dias força/sem: <span className="font-medium text-foreground">{anamnese.days_per_week_strength ?? "—"}</span></div>
                     </div>
-                    {anamnese.injuries && <p className="text-xs bg-slate-50 rounded p-2 mt-2">Lesões: {anamnese.injuries}</p>}
+                    {anamnese.injuries && <p className="text-xs bg-muted/50 rounded p-2 mt-2">Lesões: {anamnese.injuries}</p>}
                     {anamnese.current_pain != null && <p className="text-xs mt-2">Dor atual · {anamnese.current_pain === false ? "Não relatada" : anamnese.current_pain}</p>}
                     {anamnese.intercycle_update?.new_goals && <p className="text-xs mt-2">Meta relatada · {anamnese.intercycle_update.new_goals}</p>}
                     {anamnese.intercycle_update?.goal_needs_review && <p className="text-xs mt-2">Revise a meta relatada com o aluno. O objetivo classificado segue em uso.</p>}
@@ -2044,20 +2044,20 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-sm text-slate-600">Este aluno ainda não respondeu a anamnese. Gere um link e envie para ele preencher:</p>
+                    <p className="text-sm text-muted-foreground">Este aluno ainda não respondeu a anamnese. Gere um link e envie para ele preencher:</p>
                     {!inviteLink ? (
-                      <Button onClick={createInvite} disabled={creatingInvite} className="bg-[#1B2B4A] hover:bg-[#1B2B4A]/90">
+                      <Button onClick={createInvite} disabled={creatingInvite} className="bg-primary hover:bg-primary/90 h-auto min-h-10 max-w-full whitespace-normal break-words">
                         {creatingInvite ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />} Gerar link de anamnese
                       </Button>
                     ) : (
                       <div className="flex gap-2">
                         <Input value={inviteLink} readOnly className="text-sm" />
-                        <Button onClick={copyLink} variant="outline">
+                        <Button onClick={copyLink} variant="outline" className="h-auto min-h-10 max-w-full whitespace-normal break-words">
                           {copying ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                         </Button>
                       </div>
                     )}
-                    {inviteLink && <p className="text-xs text-slate-400">O link está pronto para a conversa interna. Quando o aluno responder, a anamnese aparece aqui.</p>}
+                    {inviteLink && <p className="text-xs text-muted-foreground">O link está pronto para a conversa interna. Quando o aluno responder, a anamnese aparece aqui.</p>}
                   </div>
                 )}
               </CardContent>
@@ -2081,10 +2081,10 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   <CheckCircle2 className="h-4 w-4" /> Avaliação já realizada
                   <Badge variant="outline" className="text-xs">{assessment.assessment_json?.total_compensacoes || 0} compensações</Badge>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">Gere uma nova abaixo se quiser refazer.</p>
+                <p className="text-xs text-muted-foreground mt-1">Gere uma nova abaixo se quiser refazer.</p>
                 <div className="flex flex-wrap gap-2 mt-3">
-                  <Button size="sm" variant="outline" onClick={downloadAssessmentPDF} disabled={sendingAssess}>{sendingAssess ? "Gerando..." : "Baixar PDF"}</Button>
-                  <Button size="sm" onClick={sendAssessmentWhatsApp} disabled={sendingAssess} className="bg-[#1B2B4A] text-white hover:bg-[#1B2B4A]/90">
+                  <Button size="sm" variant="outline" onClick={downloadAssessmentPDF} disabled={sendingAssess} className="h-auto min-h-10 max-w-full whitespace-normal break-words">{sendingAssess ? "Gerando..." : "Baixar PDF"}</Button>
+                  <Button size="sm" onClick={sendAssessmentWhatsApp} disabled={sendingAssess} className="bg-primary text-primary-foreground hover:bg-primary/90 h-auto min-h-10 max-w-full whitespace-normal break-words">
                     {sendingAssess ? "Enviando..." : "Enviar pela conversa interna"}
                   </Button>
                 </div>
@@ -2123,7 +2123,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                   Resultado integrado para prescrição
                   <Badge variant={prescriptionIntegration.readiness.status === "pronto" ? "default" : "outline"} className="text-xs">
                     {prescriptionIntegration.readiness.status}
@@ -2138,19 +2138,19 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
-                <p className="text-slate-600">{prescriptionIntegration.readiness.reason}</p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded border border-slate-200 p-2">
+                <p className="text-muted-foreground">{prescriptionIntegration.readiness.reason}</p>
+                <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                  <div className="rounded border border-border p-2">
                     Anamnese: {prescriptionIntegration.sources.has_anamnese ? "ok" : "pendente"}
                   </div>
-                  <div className="rounded border border-slate-200 p-2">
+                  <div className="rounded border border-border p-2">
                     Avaliação: {prescriptionIntegration.sources.has_assessment ? "ok" : "pendente"}
                   </div>
                 </div>
                 {prescriptionIntegration.functional_findings.priorities.length > 0 && (
                   <div>
-                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Prioridades funcionais</p>
-                    <ul className="space-y-1 text-slate-600">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Prioridades funcionais</p>
+                    <ul className="space-y-1 text-muted-foreground">
                       {prescriptionIntegration.functional_findings.priorities.slice(0, 4).map((item, index) => (
                         <li key={index}>- {item}</li>
                       ))}
@@ -2159,8 +2159,8 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                 )}
                 {prescriptionIntegration.prescription_decision.exercise_selection_rules.length > 0 && (
                   <div>
-                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Regras para a IA</p>
-                    <ul className="space-y-1 text-slate-600">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Regras para a IA</p>
+                    <ul className="space-y-1 text-muted-foreground">
                       {prescriptionIntegration.prescription_decision.exercise_selection_rules.slice(0, 4).map((item, index) => (
                         <li key={index}>- {item}</li>
                       ))}
@@ -2172,27 +2172,27 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base font-display">
-                  <CalendarRange className="h-5 w-5 text-[#8B7355]" />
+                <CardTitle className="flex flex-wrap items-center gap-2 text-base font-display">
+                  <CalendarRange className="h-5 w-5 text-primary" />
                   Vigência e agendamento
-                  <span className="ml-auto font-mono-data text-xs font-normal text-slate-500">
+                  <span className="ml-auto font-mono-data text-xs font-normal text-muted-foreground">
                     {scheduleCycles.length > 0 ? `${scheduleCycles.length} ciclos · ${scheduleSpanWeeks(scheduleCycles)} semanas` : "Sem vigência"}
                   </span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200" role="group" aria-label="Modo de agendamento">
+                <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border" role="group" aria-label="Modo de agendamento">
                   <button
                     type="button"
                     onClick={() => setScheduleMode("single")}
-                    className={`flex min-h-10 items-center justify-center gap-2 px-3 text-sm transition-colors ${scheduleMode === "single" ? "bg-[#1B2B4A] text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                    className={`flex min-h-10 items-center justify-center gap-2 break-words py-2 px-3 text-sm transition-colors ${scheduleMode === "single" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted/50"}`}
                   >
                     <CalendarRange className="h-4 w-4" /> Um ciclo
                   </button>
                   <button
                     type="button"
                     onClick={() => setScheduleMode("remaining")}
-                    className={`flex min-h-10 items-center justify-center gap-2 border-l border-slate-200 px-3 text-sm transition-colors ${scheduleMode === "remaining" ? "bg-[#1B2B4A] text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+                    className={`flex min-h-10 items-center justify-center gap-2 break-words py-2 border-l border-border px-3 text-sm transition-colors ${scheduleMode === "remaining" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted/50"}`}
                   >
                     <Layers3 className="h-4 w-4" /> Plano restante
                   </button>
@@ -2206,7 +2206,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                 </section>}
 
                 {scheduleLoading ? (
-                  <div className="flex min-h-16 items-center justify-center gap-2 text-sm text-slate-500">
+                  <div className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Carregando vigência
                   </div>
                 ) : scheduleLoadError ? (
@@ -2227,7 +2227,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                         <select
                           value={selectedCycleId}
                           onChange={(event) => setSelectedCycleId(event.target.value)}
-                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-[#8B7355] focus:ring-2 focus:ring-[#8B7355]/15"
+                          className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/15"
                         >
                           {scheduleCycles.map((cycle) => (
                             <option key={cycle.id} value={cycle.id}>
@@ -2238,7 +2238,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                       </label>
                     )}
 
-                    <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
+                    <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
                       {scheduleCycles.map((cycle) => {
                         const prepared = hasActivePrescriptionContent(cycle);
                         const current = isCycleCurrent(cycle);
@@ -2250,16 +2250,16 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                             key={cycle.id}
                             type="button"
                             onClick={() => { setScheduleMode("single"); setSelectedCycleId(cycle.id); }}
-                            className={`grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2.5 text-left transition-colors ${selected ? "bg-[#F5EDD8]/55" : "bg-white hover:bg-slate-50"}`}
+                            className={`grid w-full grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 text-left transition-colors ${selected ? "bg-primary/10" : "bg-card hover:bg-muted/50"}`}
                           >
-                            <span className={`flex h-8 w-8 items-center justify-center rounded-md font-mono-data text-xs font-semibold ${selected ? "bg-[#1B2B4A] text-white" : "bg-slate-100 text-slate-600"}`}>
+                            <span className={`flex h-8 w-8 items-center justify-center rounded-md font-mono-data text-xs font-semibold ${selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                               {cycle.cycle_number}
                             </span>
                             <span className="min-w-0">
-                              <span className="block truncate text-sm font-medium text-slate-800">{describeLongitudinalPhase(longitudinalPhase(cycle.cycle_number, cycle))}</span>
-                              <span className="block font-mono-data text-[11px] text-slate-500">{formatCycleDate(cycle.start_date)} — {formatCycleDate(cycle.end_date)}</span>
+                              <span className="block truncate text-sm font-medium text-foreground">{describeLongitudinalPhase(longitudinalPhase(cycle.cycle_number, cycle))}</span>
+                              <span className="block font-mono-data text-[11px] text-muted-foreground">{formatCycleDate(cycle.start_date)} — {formatCycleDate(cycle.end_date)}</span>
                             </span>
-                            <span className={`text-xs font-medium ${prepared ? "text-emerald-700" : current ? "text-[#8B7355]" : "text-slate-500"}`}>{statusLabel}</span>
+                            <span className={`col-start-2 text-xs font-medium sm:col-start-auto ${prepared ? "text-emerald-700" : current ? "text-primary" : "text-muted-foreground"}`}>{statusLabel}</span>
                           </button>
                         );
                       })}
@@ -2271,7 +2271,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                   Orquestração {assistantName}
                   <Badge variant="outline" className="text-xs">6 semanas</Badge>
                   <BnitoContextButton
@@ -2283,12 +2283,12 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   />
                 </CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-2 text-xs text-slate-600 md:grid-cols-3">
+              <CardContent className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
                 {bnitoOrchestration.blocks.map((block) => (
-                  <div key={block.block} className="rounded border border-slate-200 p-3">
-                    <p className="font-medium text-slate-800">Semanas {block.weeks[0]}-{block.weeks[1]}</p>
+                  <div key={block.block} className="rounded border border-border p-3">
+                    <p className="font-medium text-foreground">Semanas {block.weeks[0]}-{block.weeks[1]}</p>
                     <p className="mt-1">{block.name}</p>
-                    <p className="mt-2 text-slate-400">{block.advanced_methods.join(", ")}</p>
+                    <p className="mt-2 text-muted-foreground">{block.advanced_methods.join(", ")}</p>
                   </div>
                 ))}
               </CardContent>
@@ -2296,7 +2296,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                   O que esse aluno vai receber?
                   <BnitoContextButton
                     studentId={studentId || undefined}
@@ -2312,21 +2312,21 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   {MODALITIES.map(({ id, icon: Icon, label, sub }) => (
                     <button key={id} onClick={() => toggleMod(id)}
                       className={`relative rounded-xl border-2 p-3 text-left transition ${
-                        modalities.has(id) ? "border-[#8B7355] bg-[#F5EDD8]/50 shadow-sm" : "border-slate-200 hover:border-[#8B7355]/40 hover:bg-slate-50"}`}>
-                      {modalities.has(id) && <CheckCircle2 className="h-4 w-4 text-[#8B7355] absolute top-2 right-2" />}
-                      <Icon className={`h-5 w-5 mb-1 ${modalities.has(id) ? "text-[#8B7355]" : "text-slate-400"}`} />
-                      <div className="text-sm font-medium text-slate-800">{label}</div>
-                      <div className="text-xs text-slate-500">{sub}</div>
+                        modalities.has(id) ? "border-primary bg-primary/10 shadow-sm" : "border-border hover:border-primary/40 hover:bg-muted/50"}`}>
+                      {modalities.has(id) && <CheckCircle2 className="h-4 w-4 text-primary absolute top-2 right-2" />}
+                      <Icon className={`h-5 w-5 mb-1 ${modalities.has(id) ? "text-primary" : "text-muted-foreground"}`} />
+                      <div className="text-sm font-medium text-foreground">{label}</div>
+                      <div className="text-xs text-muted-foreground">{sub}</div>
                     </button>
                   ))}
                 </div>
 
                 {/* Progresso */}
                 {(generating || Object.keys(status).length > 0) && (
-                  <div className="mt-4 space-y-2 border rounded-lg p-4 bg-slate-50">
+                  <div className="mt-4 space-y-2 border rounded-lg p-4 bg-muted/50">
                     <div className="mb-1 flex items-center justify-between gap-3">
                       <p className="text-eyebrow">Geração integrada</p>
-                      {scheduleProgress && <span className="font-mono-data text-xs text-slate-500">{scheduleProgress.label} · {scheduleProgress.current}/{scheduleProgress.total}</span>}
+                      {scheduleProgress && <span className="font-mono-data text-xs text-muted-foreground">{scheduleProgress.label} · {scheduleProgress.current}/{scheduleProgress.total}</span>}
                     </div>
                     {Array.from(modalities).map(m => {
                       const meta = MODALITIES.find(x => x.id === m)!;
@@ -2346,10 +2346,10 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                 {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
 
                 {scheduledSummaries.length > 0 && (
-                  <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50/40">
+                  <div className="mt-4 divide-y divide-border overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50/40">
                     {scheduledSummaries.map(({ cycle, modalities: generatedModalities }) => (
-                      <div key={cycle.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                        <span className="text-slate-700">Ciclo {cycle.cycle_number} · {formatCycleDate(cycle.start_date)} a {formatCycleDate(cycle.end_date)}</span>
+                      <div key={cycle.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm">
+                        <span className="text-foreground">Ciclo {cycle.cycle_number} · {formatCycleDate(cycle.start_date)} a {formatCycleDate(cycle.end_date)}</span>
                         <span className="font-mono-data text-xs text-emerald-700">{generatedModalities.length} {generatedModalities.length === 1 ? "prescrição" : "prescrições"}</span>
                       </div>
                     ))}
@@ -2376,7 +2376,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                       <p>A musculação da geração integrada pode ter sido salva. Uma nova geração exige confirmação.</p>
                     ) : <p>Há uma geração de musculação com resultado pendente.</p>}
                     {!pendingStrength.mixed && (pendingStrengthCycle ? (
-                      <Button type="button" variant="outline" size="sm" className="mt-2"
+                      <Button type="button" variant="outline" size="sm" className="mt-2 h-auto min-h-10 max-w-full whitespace-normal break-words"
                         disabled={generating || publishing || savingStrength || scheduleLoading}
                         onClick={retryPendingStrength}>
                         {pendingStrength.body ? "Retentar musculação" : "Consultar rascunho pendente"} · ciclo {pendingStrengthCycle.cycle_number}
@@ -2385,7 +2385,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   </div>
                 )}
 
-                <Button className="w-full mt-4 bg-[#1B2B4A] hover:bg-[#1B2B4A]/90"
+                <Button className="w-full mt-4 bg-primary hover:bg-primary/90 h-auto min-h-10 max-w-full whitespace-normal break-words"
                   onClick={generate} disabled={generating || publishing || savingStrength || scheduleLoading || Boolean(scheduleLoadError) || Boolean(anamneseGenerationBlockReason) || modalities.size === 0 || scheduleTargets.length === 0}>
                   {generating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {scheduleProgress ? `Gerando ${scheduleProgress.label.toLowerCase()} (${scheduleProgress.current}/${scheduleProgress.total})` : "Gerando"}</>
                     : generationButtonLabel}
@@ -2393,7 +2393,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
                 {integratedDrafts.filter(draft => !draft.hasStrength && draft.cycle.student_id === studentId
                   && draft.cycle.company_id === companyId).map(draft => (
-                  <Button key={draft.bundleId} type="button" variant="outline" size="sm" className="mr-2 mt-2"
+                  <Button key={draft.bundleId} type="button" variant="outline" size="sm" className="mr-2 mt-2 h-auto min-h-10 max-w-full whitespace-normal break-words"
                     disabled={generating || publishing || Object.values(savingCardio).some(Boolean) || draft.bundleId === activeIntegratedBundleId}
                     onClick={() => openIntegratedDraft(draft)}>
                     Revisar pacote · ciclo {draft.cycle.cycle_number}
@@ -2401,7 +2401,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                 ))}
                 {generatedStrengthDrafts.filter(draft => draft.studentId === studentId && draft.companyId === companyId
                   && (!draft.integrated || integratedDrafts.some(item => item.bundleId === draft.bundleId))).map(draft => (
-                  <Button key={draft.draftId} type="button" variant="outline" size="sm" className="mr-2 mt-2"
+                  <Button key={draft.draftId} type="button" variant="outline" size="sm" className="mr-2 mt-2 h-auto min-h-10 max-w-full whitespace-normal break-words"
                     disabled={generating || publishing || savingStrength || Object.values(savingCardio).some(Boolean) || draft.draftId === strengthPlanId}
                     onClick={() => openStrengthDraft(draft)}>
                     Revisar rascunho · ciclo {draft.cycle.cycle_number}
@@ -2410,15 +2410,15 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
                 {/* #4 Templates de ciclo — começar de um treino salvo em vez de gerar do zero */}
                 {templates.length > 0 && studentId && (
-                  <div className="mt-3 border rounded-lg p-2 bg-slate-50/60">
-                    <p className="text-[11px] font-medium text-slate-600 mb-1.5">📋 Ou comece de um template seu:</p>
+                  <div className="mt-3 border rounded-lg p-2 bg-muted/50">
+                    <p className="text-[11px] font-medium text-muted-foreground mb-1.5">📋 Ou comece de um template seu:</p>
                     <div className="flex flex-wrap gap-1.5">
                       {templates.map((t) => (
-                        <span key={t.id} className="inline-flex items-center rounded-full border border-slate-200 bg-white overflow-hidden">
+                        <span key={t.id} className="inline-flex min-w-0 max-w-full items-center rounded-full border border-border bg-card overflow-hidden">
                           <button type="button" onClick={() => void applyCycleTemplate(t)} disabled={generating || publishing || savingStrength || !selectedScheduleCycle}
-                            className="px-2.5 py-1 text-xs text-[#1B2B4A] hover:bg-[#F5EDD8]/60">{t.name}</button>
+                            className="min-w-0 break-words px-2.5 py-1 text-left text-xs text-primary hover:bg-primary/10">{t.name}</button>
                           <button type="button" title="Excluir template" onClick={() => deleteTemplate(t.id)}
-                            className="px-1.5 py-1 text-[10px] text-slate-400 hover:text-red-500 border-l border-slate-100">✕</button>
+                            className="px-1.5 py-1 text-[10px] text-muted-foreground hover:text-red-500 border-l border-border">✕</button>
                         </span>
                       ))}
                     </div>
@@ -2431,7 +2431,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
             {Object.values(results).some(Boolean) && !generating && (
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
+                  <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                     Prescrições geradas
                     <BnitoContextButton
                       studentId={studentId || undefined}
@@ -2447,14 +2447,14 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   {Object.keys(results).map(mod => {
                     const meta = MODALITIES.find(x => x.id === mod);
                     return (
-                      <div key={mod} className="flex items-center gap-2 text-sm border-l-2 border-[#8B7355] pl-3 py-1">
+                      <div key={mod} className="flex items-center gap-2 text-sm border-l-2 border-primary pl-3 py-1">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                         <span className="font-medium">{meta?.label}</span>
-                        <span className="text-slate-400 text-xs">pronta</span>
+                        <span className="text-muted-foreground text-xs">pronta</span>
                       </div>
                     );
                   })}
-                  <Button onClick={downloadPDFs} className="w-full bg-[#8B7355] hover:bg-[#8B7355]/90 mt-2">
+                  <Button onClick={downloadPDFs} className="w-full bg-primary hover:bg-primary/90 mt-2 h-auto min-h-10 max-w-full whitespace-normal break-words">
                     <Download className="h-4 w-4 mr-2" /> Baixar PDFs separados ({Object.keys(results).length})
                   </Button>
 
@@ -2468,41 +2468,41 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
 
                   {/* Revisar e editar a prescrição de força ANTES de publicar no app */}
                   {editPlan && Array.isArray(editPlan.workouts) && (
-                    <div className="mt-2 rounded-lg border bg-slate-50/60 p-3">
+                    <div className="mt-2 rounded-lg border bg-muted/50 p-3">
                       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                        <button type="button" onClick={() => setShowEdit(s => !s)} className="text-left text-sm font-medium text-[#1B2B4A] underline">
+                        <button type="button" onClick={() => setShowEdit(s => !s)} className="text-left text-sm font-medium text-primary underline">
                           {showEdit ? "Ocultar ajuste da musculação" : "✏️ Ajustar musculação"}
                         </button>
-                        <Button type="button" size="sm" className="w-full sm:w-auto" onClick={() => void saveStrengthDraft()} disabled={savingStrength || generating || publishing || !strengthPlanId || !strengthPlanVersion}>
+                        <Button type="button" size="sm" className="w-full sm:w-auto h-auto min-h-10 max-w-full whitespace-normal break-words" onClick={() => void saveStrengthDraft()} disabled={savingStrength || generating || publishing || !strengthPlanId || !strengthPlanVersion}>
                           {savingStrength ? "Salvando…" : savedStrength ? "Musculação salva" : "Salvar alterações de musculação"}
                         </Button>
                         <button type="button" onClick={saveAsTemplate} disabled={savingTemplate}
-                          className="text-left text-xs text-[#8B7355] underline disabled:opacity-50">
+                          className="text-left text-xs text-primary underline disabled:opacity-50">
                           {savingTemplate ? "Salvando…" : "💾 Salvar como template"}
                         </button>
                       </div>
                       {showEdit && (
                         <div className="mt-3 space-y-3">
-                          <p className="text-xs text-slate-500">Edite séries / reps / descanso / obs. Ao publicar, vai a versão editada pro app do aluno.</p>
+                          <p className="text-xs text-muted-foreground">Edite séries / reps / descanso / obs. Ao publicar, vai a versão editada pro app do aluno.</p>
                           {Array.isArray(editPlan.weekly_periodization) && editPlan.weekly_periodization.length > 0 && (
                             <div className="grid gap-2 sm:grid-cols-3">
                               {editPlan.weekly_periodization.map((week: any) => (
-                                <div key={week.week} className="rounded-xl border border-slate-200 bg-white p-2.5">
-                                  <p className="font-mono-data text-[10px] font-semibold uppercase text-[#8B7355]">Semana {week.week}</p>
-                                  <p className="mt-1 text-xs font-medium text-[#1B2B4A]">{week.stimulus}</p>
-                                  <p className="mt-1 text-[11px] text-slate-500">Cadência {week.tempo_focus} · RIR {week.rir}</p>
-                                  <p className="text-[11px] text-slate-500">{week.methods?.length ? week.methods.join(" + ") : week.method_focus}</p>
+                                <div key={week.week} className="rounded-xl border border-border bg-card p-2.5">
+                                  <p className="font-mono-data text-[10px] font-semibold uppercase text-primary">Semana {week.week}</p>
+                                  <p className="mt-1 text-xs font-medium text-primary">{week.stimulus}</p>
+                                  <p className="mt-1 text-[11px] text-muted-foreground">Cadência {week.tempo_focus} · RIR {week.rir}</p>
+                                  <p className="text-[11px] text-muted-foreground">{week.methods?.length ? week.methods.join(" + ") : week.method_focus}</p>
                                 </div>
                               ))}
                             </div>
                           )}
                           {editPlan.workouts.map((w: any, wi: number) => (
-                            <div key={wi} className="space-y-2 rounded-lg border bg-white p-2">
+                            <div key={wi} className="space-y-2 rounded-lg border bg-card p-2">
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <Input value={w.name || ""} onChange={e => updateWName(wi, e.target.value)} className="h-8 text-sm font-medium" />
                                 <button type="button" onClick={() => removeWorkout(wi)} className="shrink-0 whitespace-nowrap px-2 text-left text-xs text-red-500">Remover treino</button>
                               </div>
-                              <div className="hidden grid-cols-12 gap-1 px-0.5 text-[10px] uppercase text-slate-400 sm:grid">
+                              <div className="hidden grid-cols-12 gap-1 px-0.5 text-[10px] uppercase text-muted-foreground sm:grid">
                                 <span className="col-span-1">Arrastar</span><span className="col-span-1">Vídeo</span><span className="col-span-2">Exercício</span><span className="col-span-1">Sér</span><span className="col-span-2">Reps</span><span className="col-span-2">Desc(s)</span><span className="col-span-2">Obs</span><span className="col-span-1"></span>
                               </div>
                               {(() => {
@@ -2528,7 +2528,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                     }}
                                     className={`h-2 rounded-full transition-colors ${
                                       dropTarget?.wi === wi && dropTarget.unitIndex === unitIndex
-                                        ? "bg-[#8B7355]"
+                                        ? "bg-primary"
                                         : "bg-transparent"
                                     }`}
                                     aria-hidden="true"
@@ -2559,14 +2559,14 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                           onPointerCancel={resetExerciseDrag}
                                           className={`rounded-xl border transition-colors ${
                                             unit.type === "group"
-                                              ? "border-[#8B7355]/50 bg-[#FAF8F2]"
-                                              : "border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50/60"
-                                          } ${isDragging ? "opacity-70 ring-2 ring-[#8B7355]/40" : ""}`}
+                                              ? "border-primary/50 bg-muted/50"
+                                              : "border-border bg-card hover:border-border hover:bg-muted/50"
+                                          } ${isDragging ? "opacity-70 ring-2 ring-ring/40" : ""}`}
                                         >
-                                          <div className="flex items-center gap-2 border-b border-slate-100 px-2 py-1">
+                                          <div className="flex items-center gap-2 border-b border-border px-2 py-1">
                                             <button
                                               type="button"
-                                              className="h-7 w-8 inline-flex touch-none items-center justify-center rounded border border-slate-200 bg-white text-slate-500 cursor-grab active:cursor-grabbing hover:bg-slate-50"
+                                              className="h-7 w-8 inline-flex touch-none items-center justify-center rounded border border-border bg-card text-muted-foreground cursor-grab active:cursor-grabbing hover:bg-muted/50"
                                               title={unit.type === "group" ? "Arraste para mover o bloco inteiro" : "Arraste para mudar a ordem"}
                                               aria-label={unit.type === "group" ? "Arrastar bloco de método sem separar exercícios" : "Arrastar exercício"}
                                               aria-roledescription="alça de arrastar"
@@ -2600,15 +2600,15 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                               <GripVertical className="h-4 w-4" />
                                             </button>
                                             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                                              <span className="font-mono-data text-[10px] font-semibold text-slate-500">
+                                              <span className="font-mono-data text-[10px] font-semibold text-muted-foreground">
                                                 {unit.startIndex + 1}{unit.type === "group" ? `–${unit.endIndex + 1}` : ""}
                                               </span>
                                               {unit.type === "group" && (
                                                 <>
-                                                  <span className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">
+                                                  <span className="rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-semibold uppercase text-primary-foreground">
                                                     {unit.method}
                                                   </span>
-                                                  <span className="text-[10px] text-slate-500">
+                                                  <span className="text-[10px] text-muted-foreground">
                                                     bloco inteiro · {unit.items.length} exercícios
                                                   </span>
                                                 </>
@@ -2618,7 +2618,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                               type="button"
                                               onClick={() => moveExerciseByIndex(wi, unit.startIndex, "up")}
                                               disabled={unitIndex === 0}
-                                              className="h-7 w-7 rounded border border-slate-200 text-slate-500 disabled:opacity-30"
+                                              className="h-7 w-7 rounded border border-border text-muted-foreground disabled:opacity-30"
                                               title="Mover para cima"
                                             >
                                               ↑
@@ -2627,7 +2627,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                               type="button"
                                               onClick={() => moveExerciseByIndex(wi, unit.startIndex, "down")}
                                               disabled={unitIndex === units.length - 1}
-                                              className="h-7 w-7 rounded border border-slate-200 text-slate-500 disabled:opacity-30"
+                                              className="h-7 w-7 rounded border border-border text-muted-foreground disabled:opacity-30"
                                               title="Mover para baixo"
                                             >
                                               ↓
@@ -2639,18 +2639,18 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                               const libraryExercise = findLibraryExercise(ex);
                                               const weeklyBlocks = summarizeExerciseWeeklyProgression(ex.weekly_prescription);
                                               return (
-                                                <div key={`${ex.exercise_id || ex.exercise_name || "exercise"}-${ei}`} className="rounded-lg border border-slate-100 bg-white">
+                                                <div key={`${ex.exercise_id || ex.exercise_name || "exercise"}-${ei}`} className="rounded-lg border border-border bg-card">
                                                   <div className="grid grid-cols-12 items-center gap-1 p-1 sm:gap-1.5">
                                                     <div className="col-span-2 sm:col-span-1 flex items-center">
-                                                      <span className="font-mono-data text-[10px] text-slate-400">{ei + 1}</span>
+                                                      <span className="font-mono-data text-[10px] text-muted-foreground">{ei + 1}</span>
                                                     </div>
                                                     <div className="col-span-3 sm:col-span-1">
                                                       <ExerciseVideoPreview exercise={ex} libraryExercise={libraryExercise} />
                                                     </div>
-                                                    <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-7 min-w-0 text-left text-xs font-medium hover:text-[#1B2B4A] hover:underline sm:col-span-2" title="Trocar exercício (biblioteca)">
+                                                    <button type="button" onClick={() => { setPickerTarget({ wi, ei }); setPickerSearch(""); setPickerGroup(""); }} className="col-span-7 min-w-0 text-left text-xs font-medium hover:text-primary hover:underline sm:col-span-2" title="Trocar exercício (biblioteca)">
                                                       <span className="block truncate">{ex.exercise_name || "—"} ✎</span>
                                                       {libraryExercise?.muscle_group && (
-                                                        <span className="block truncate text-[10px] font-normal text-slate-400">{libraryExercise.muscle_group}</span>
+                                                        <span className="block truncate text-[10px] font-normal text-muted-foreground">{libraryExercise.muscle_group}</span>
                                                       )}
                                                     </button>
                                                     <Input className="col-span-4 h-8 px-2 text-xs sm:col-span-1 sm:h-7 sm:px-1" value={String(ex.sets ?? "")} onChange={e => updateExField(wi, ei, "sets", e.target.value)} placeholder="séries" aria-label="Séries" />
@@ -2660,28 +2660,28 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                                     <button type="button" onClick={() => removeExercise(wi, ei)} className="col-span-3 text-sm text-red-500 sm:col-span-1" title="Remover exercício">✕</button>
                                                   </div>
                                                   {weeklyBlocks.length > 0 && (
-                                                    <div className="grid gap-1.5 border-t border-slate-100 bg-[#FAF8F2]/70 p-2 sm:grid-cols-3">
+                                                    <div className="grid gap-1.5 border-t border-border bg-muted/50 p-2 sm:grid-cols-3">
                                                       {weeklyBlocks.map((block) => (
-                                                        <div key={block.weeks} className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                                                        <div key={block.weeks} className="min-w-0 rounded-lg border border-border bg-card px-2 py-1.5">
                                                           <div className="flex flex-wrap items-center gap-1">
-                                                            <span className="font-mono-data text-[9px] font-semibold uppercase text-[#8B7355]">
+                                                            <span className="font-mono-data text-[9px] font-semibold uppercase text-primary">
                                                               Semanas {block.weeks}
                                                             </span>
                                                             {block.method ? (
                                                               <span
-                                                                className="rounded-full bg-[#1B2B4A] px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                                                                className="rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-semibold text-primary-foreground"
                                                                 title={block.methodReason ? `Política: ${block.methodReason}` : undefined}
                                                               >
                                                                 {block.method}
                                                               </span>
                                                             ) : (
-                                                              <span className="text-[9px] text-slate-400">Séries retas</span>
+                                                              <span className="text-[9px] text-muted-foreground">Séries retas</span>
                                                             )}
                                                           </div>
-                                                          <p className="mt-1 text-[10px] font-medium text-[#1B2B4A]">
+                                                          <p className="mt-1 text-[10px] font-medium text-primary">
                                                             {block.setsReps} · Cadência {formatStudioTempo(block.tempo)} · RIR {block.rir}
                                                           </p>
-                                                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-slate-500" title={block.instruction}>
+                                                          <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground" title={block.instruction}>
                                                             {block.instruction}
                                                           </p>
                                                         </div>
@@ -2698,30 +2698,30 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                                   </>
                                 );
                               })()}
-                              <button type="button" onClick={() => { setPickerTarget(pickerTarget?.wi === wi && pickerTarget?.ei == null ? null : { wi, ei: null }); setPickerSearch(""); setPickerGroup(""); }} className="text-xs text-[#1B2B4A] underline mt-1">+ Adicionar exercício</button>
+                              <button type="button" onClick={() => { setPickerTarget(pickerTarget?.wi === wi && pickerTarget?.ei == null ? null : { wi, ei: null }); setPickerSearch(""); setPickerGroup(""); }} className="text-xs text-primary underline mt-1">+ Adicionar exercício</button>
                               {pickerTarget?.wi === wi && (
-                                <div className="mt-2 rounded-lg border bg-slate-50 p-2">
+                                <div className="mt-2 rounded-lg border bg-muted/50 p-2">
                                   <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-[11px] font-medium text-slate-600">{pickerTarget.ei == null ? "Adicionar da biblioteca" : "Trocar exercício"}</p>
-                                    <button type="button" onClick={() => setPickerTarget(null)} className="text-[11px] text-slate-400">fechar</button>
+                                    <p className="text-[11px] font-medium text-muted-foreground">{pickerTarget.ei == null ? "Adicionar da biblioteca" : "Trocar exercício"}</p>
+                                    <button type="button" onClick={() => setPickerTarget(null)} className="text-[11px] text-muted-foreground">fechar</button>
                                   </div>
                                   <Input value={pickerSearch} onChange={e => setPickerSearch(e.target.value)} placeholder="Buscar na biblioteca..." className="h-8 text-xs mb-2" />
                                   <div className="mb-2 flex max-h-20 gap-1 overflow-x-auto pb-1 sm:max-h-none sm:flex-wrap sm:overflow-visible sm:pb-0">
                                     {["", ...Array.from(new Set(library.map(l => l.muscle_group).filter(Boolean) as string[])).sort()].map(g => (
-                                      <button type="button" key={g || "all"} onClick={() => setPickerGroup(g)} className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${pickerGroup === g ? "border-[#8B7355] bg-[#F5EDD8]/60 text-[#1B2B4A]" : "border-slate-200 text-slate-500"}`}>{g || "Todos"}</button>
+                                      <button type="button" key={g || "all"} onClick={() => setPickerGroup(g)} className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${pickerGroup === g ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{g || "Todos"}</button>
                                     ))}
                                   </div>
                                   <div className="max-h-64 space-y-1 overflow-y-auto">
-                                    {library.length === 0 && <p className="text-xs text-slate-400">Carregando biblioteca…</p>}
+                                    {library.length === 0 && <p className="text-xs text-muted-foreground">Carregando biblioteca…</p>}
                                     {library
                                       .filter(l => !pickerGroup || l.muscle_group === pickerGroup)
                                       .filter(l => (l.name || "").toLowerCase().includes(pickerSearch.trim().toLowerCase()))
                                       .slice(0, 60).map(l => (
-                                        <button type="button" key={l.id} onClick={() => pickExercise(l)} className="w-full text-left text-xs px-2 py-1 rounded-xl border border-transparent hover:bg-white hover:border-slate-200 flex items-center gap-2">
+                                        <button type="button" key={l.id} onClick={() => pickExercise(l)} className="w-full text-left text-xs px-2 py-1 rounded-xl border border-transparent hover:bg-card hover:border-border flex items-center gap-2">
                                           <ExerciseVideoPreview libraryExercise={l} interactive={false} />
                                           <span className="min-w-0 flex-1">
                                             <span className="block truncate">{l.name}</span>
-                                            {l.muscle_group && <span className="block text-[10px] text-slate-400 truncate">{l.muscle_group}</span>}
+                                            {l.muscle_group && <span className="block text-[10px] text-muted-foreground truncate">{l.muscle_group}</span>}
                                           </span>
                                         </button>
                                       ))}
@@ -2730,7 +2730,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                               )}
                             </div>
                           ))}
-                          <button type="button" onClick={addWorkout} className="text-sm text-[#1B2B4A] underline">+ Adicionar treino</button>
+                          <button type="button" onClick={addWorkout} className="text-sm text-primary underline">+ Adicionar treino</button>
                         </div>
                       )}
                     </div>
@@ -2762,7 +2762,7 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                     <>
                       <Button onClick={() => void publishToStudent(activePublicationDraft.bundleId)}
                         disabled={publishing || generating || savingStrength || Object.values(savingCardio).some(Boolean)}
-                        variant="outline" className="w-full border-[#1B2B4A] text-[#1B2B4A] hover:bg-[#1B2B4A]/5">
+                        variant="outline" className="w-full border-primary text-primary hover:bg-primary/5 h-auto min-h-10 max-w-full whitespace-normal break-words">
                         {publishing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Publicando…</>
                           : <><Dumbbell className="h-4 w-4 mr-2" /> Publicar {activeIntegratedDraft ? "pacote completo" : "musculação"} · ciclo {activePublicationDraft.cycle.cycle_number}</>}
                       </Button>
@@ -2784,11 +2784,11 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                     </p>
                   )}
                   {pdfs.length > 0 && (
-                    <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="grid grid-cols-1 gap-2 mt-2 sm:grid-cols-2">
                       {pdfs.map(p => (
                         <button key={p.modality} onClick={() => p.doc.save(p.filename)}
-                          className="flex items-center gap-2 text-sm border rounded-lg p-2 hover:bg-slate-50">
-                          <FileText className="h-4 w-4 text-[#8B7355]" />
+                          className="flex items-center gap-2 text-sm border rounded-lg p-2 hover:bg-muted/50">
+                          <FileText className="h-4 w-4 text-primary" />
                           <span>{p.label}.pdf</span>
                         </button>
                       ))}

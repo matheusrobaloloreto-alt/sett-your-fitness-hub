@@ -914,11 +914,11 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 break-words">
       {/* Upload */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             Avaliação por vídeo
             <BnitoContextButton
               label="avaliacao por video"
@@ -939,7 +939,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-slate-500">{activeProtocol.description}</p>
+            <p className="text-xs text-muted-foreground">{activeProtocol.description}</p>
             {protocolError && <p role="alert" className="text-xs text-destructive">{protocolError}</p>}
           </div>
 
@@ -964,11 +964,11 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
 
           {!videoLoaded && (
             <div style={{ position: "relative" }}
-              className="border-2 border-dashed border-slate-300 hover:border-[#8B7355] rounded-xl bg-slate-50 transition cursor-pointer">
-              <div className="flex flex-col items-center gap-2 py-12 pointer-events-none">
-                <Video className="h-10 w-10 text-slate-400" />
-                <span className="font-semibold text-slate-600">Clique ou arraste o vídeo da avaliação</span>
-                <span className="text-xs text-slate-400">MP4 · {activeProtocol.label.toLowerCase()} vira cortes automáticos para a IA</span>
+              className="border-2 border-dashed border-border hover:border-primary rounded-xl bg-muted/50 transition cursor-pointer">
+              <div className="flex flex-col items-center gap-2 px-3 py-12 text-center pointer-events-none">
+                <Video className="h-10 w-10 text-muted-foreground" />
+                <span className="font-semibold text-muted-foreground">Clique ou arraste o vídeo da avaliação</span>
+                <span className="text-xs text-muted-foreground">MP4 · {activeProtocol.label.toLowerCase()} vira cortes automáticos para a IA</span>
               </div>
               <input type="file" accept="video/*" onChange={handleVideo} disabled={protocolLoading}
                 style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
@@ -976,13 +976,13 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
           )}
 
           {videoLoaded && (
-            <div className="flex items-center justify-between mt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
               <div style={{ position: "relative" }}>
-                <span className="text-xs text-slate-500 hover:text-[#8B7355] cursor-pointer">↩ Trocar vídeo</span>
+                <span className="text-xs text-muted-foreground hover:text-primary cursor-pointer">↩ Trocar vídeo</span>
                 <input type="file" accept="video/*" onChange={handleVideo}
                   style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }} />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="outline" onClick={reextractCurrentVideo} disabled={extracting}>
                   <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refazer cortes
                 </Button>
@@ -995,11 +995,11 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
 
           {extracting && (
             <div className="mt-3">
-              <div className="flex items-center gap-2 text-sm text-slate-600 mb-1">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                 <Loader2 className="h-4 w-4 animate-spin" /> Extraindo cortes… {progress}/{activeProtocol.vistas.length}
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-1.5">
-                <div className="bg-[#8B7355] h-1.5 rounded-full transition-all" style={{ width: `${progress/activeProtocol.vistas.length*100}%` }} />
+              <div className="w-full bg-muted rounded-full h-1.5">
+                <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${progress/activeProtocol.vistas.length*100}%` }} />
               </div>
             </div>
           )}
@@ -1010,8 +1010,8 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
 
       {/* Botão analisar */}
       {frames.length > 0 && !extracting && (
-        <div className="flex gap-2">
-          <Button onClick={analyzeAI} disabled={analyzing} className="flex-1 bg-[#1B2B4A] hover:bg-[#1B2B4A]/90">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={analyzeAI} disabled={analyzing} className="flex-1 bg-primary hover:bg-primary/90">
             {analyzing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analisando cortes…</>
               : <><Sparkles className="mr-2 h-4 w-4" /> Analisar {frames.length} cortes</>}
           </Button>
@@ -1021,19 +1021,19 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
       {/* Grid de frames editáveis */}
       {frames.length > 0 && (
         <div className="space-y-3">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Revise os cortes antes da IA. Use Ver, 1s, Usar vídeo ou Trocar ↓ quando dois cortes vizinhos vierem invertidos.
           </p>
           {frames.map((fr, index) => (
             <Card key={fr.id}>
               <CardContent className="pt-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col gap-4 sm:flex-row">
                   {/* Foto */}
                   <div className="relative flex-shrink-0" style={{ width: 132 }}>
                     <button
                       type="button"
                       onClick={() => setPreviewFrame(fr)}
-                      className="group relative block w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                      className="group relative block w-full overflow-hidden rounded-lg border border-border bg-muted"
                       style={{ aspectRatio: "9/16" }}
                       aria-label={`Ampliar ${fr.vista}`}
                     >
@@ -1051,9 +1051,9 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                   </div>
 
                   {/* Edição */}
-                  <div className="flex-1 space-y-2">
+                  <div className="min-w-0 flex-1 space-y-2">
                     {isCompanyView(fr.vista) && <div className="text-sm"><p className="font-medium">{companyViewLabel(fr.vista)}</p><p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{companyCapture.instructions[companyCapture.vistas.indexOf(fr.vista)]}</p></div>}
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Select value={fr.vista} onValueChange={v => updateFrame(fr.id, { vista: v })} disabled={isCompanyView(fr.vista)}>
                         <SelectTrigger className="h-8 text-sm w-auto"><SelectValue /></SelectTrigger>
                         <SelectContent>{VISTAS.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
@@ -1062,45 +1062,45 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setPreviewFrame(fr)}>
+                      <Button size="sm" variant="outline" className="h-auto min-h-8 px-2 text-xs" onClick={() => setPreviewFrame(fr)}>
                         <Eye className="mr-1 h-3 w-3" /> Ver
                       </Button>
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => recaptureFrame(fr.id, fr.time - FRAME_NUDGE_SECONDS)}>
+                      <Button size="sm" variant="outline" className="h-auto min-h-8 px-2 text-xs" onClick={() => recaptureFrame(fr.id, fr.time - FRAME_NUDGE_SECONDS)}>
                         <SkipBack className="mr-1 h-3 w-3" /> 1s
                       </Button>
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => recaptureFrameFromCurrentVideo(fr.id)}>
+                      <Button size="sm" variant="outline" className="h-auto min-h-8 px-2 text-xs" onClick={() => recaptureFrameFromCurrentVideo(fr.id)}>
                         <Camera className="mr-1 h-3 w-3" /> Usar vídeo
                       </Button>
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => recaptureFrame(fr.id, fr.time + FRAME_NUDGE_SECONDS)}>
+                      <Button size="sm" variant="outline" className="h-auto min-h-8 px-2 text-xs" onClick={() => recaptureFrame(fr.id, fr.time + FRAME_NUDGE_SECONDS)}>
                         1s <SkipForward className="ml-1 h-3 w-3" />
                       </Button>
                       {index < frames.length - 1 && (
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => swapFrameCaptureWithNext(fr.id)}>
+                        <Button size="sm" variant="outline" className="h-auto min-h-8 px-2 text-xs" onClick={() => swapFrameCaptureWithNext(fr.id)}>
                           <RefreshCw className="mr-1 h-3 w-3" /> Trocar ↓
                         </Button>
                       )}
-                      <span className="text-xs text-slate-400">{fr.time.toFixed(1)}s</span>
+                      <span className="text-xs text-muted-foreground">{fr.time.toFixed(1)}s</span>
                     </div>
 
                     {fr.findings.length === 0 && (
-                      <p className="text-xs text-slate-400 italic">Nenhuma compensação. Clique abaixo para adicionar.</p>
+                      <p className="text-xs text-muted-foreground italic">Nenhuma compensação. Clique abaixo para adicionar.</p>
                     )}
 
                     {fr.findings.map((finding, idx) => (
-                      <div key={idx} className="flex items-center gap-1.5">
+                      <div key={idx} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5 [&>div]:col-span-2 sm:flex">
                         <Select value={finding.gravidade} onValueChange={v => updateFinding(fr.id, idx, "gravidade", v)}>
                           <SelectTrigger className="h-8 text-xs w-24"><SelectValue /></SelectTrigger>
                           <SelectContent>{GRAVIDADES.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}</SelectContent>
                         </Select>
                         <Input value={finding.descricao} onChange={e => updateFinding(fr.id, idx, "descricao", e.target.value)}
-                          className="h-8 text-sm flex-1" placeholder="Descrição da compensação" />
-                        <button onClick={() => removeFinding(fr.id, idx)} className="text-slate-400 hover:text-red-500">
+                          className="h-8 min-w-0 text-sm flex-1" placeholder="Descrição da compensação" />
+                        <button onClick={() => removeFinding(fr.id, idx)} className="text-muted-foreground hover:text-red-500">
                           <X className="h-4 w-4" />
                         </button>
                       </div>
                     ))}
 
-                    <Button size="sm" variant="ghost" className="h-7 text-xs text-[#8B7355]" onClick={() => addFinding(fr.id)}>
+                    <Button size="sm" variant="ghost" className="h-auto min-h-8 text-xs text-primary" onClick={() => addFinding(fr.id)}>
                       <Plus className="h-3 w-3 mr-1" /> Adicionar compensação
                     </Button>
                   </div>
@@ -1111,7 +1111,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
 
           {error && <p className="text-sm text-red-500">{error}</p>}
 
-          <Button onClick={save} disabled={saving || analyzing} className="w-full bg-[#8B7355] hover:bg-[#8B7355]/90">
+          <Button onClick={save} disabled={saving || analyzing} className="w-full bg-primary hover:bg-primary/90">
             {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando avaliação…</>
               : <><Save className="mr-2 h-4 w-4" /> Salvar avaliação funcional</>}
           </Button>
@@ -1123,7 +1123,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
           onClick={() => setPreviewFrame(null)}
         >
-          <div className="relative flex max-h-[94vh] w-full max-w-5xl flex-col gap-3" onClick={(event) => event.stopPropagation()}>
+          <div className="relative flex max-h-[94vh] w-full min-w-0 max-w-5xl flex-col gap-3 overflow-y-auto" onClick={(event) => event.stopPropagation()}>
             <button
               type="button"
               onClick={() => setPreviewFrame(null)}
@@ -1132,7 +1132,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
             >
               <X className="h-4 w-4" />
             </button>
-            <div className="rounded-2xl bg-white p-3 shadow-2xl">
+            <div className="rounded-2xl bg-card text-card-foreground p-3 shadow-2xl">
               <div className="mb-3 flex flex-wrap items-center gap-2 pr-10">
                 <Button size="sm" variant="outline" onClick={applyGridAnnotation}>
                   Grade
@@ -1141,7 +1141,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                   size="sm"
                   variant={annotationTool === "line" ? "default" : "outline"}
                   onClick={() => setAnnotationTool("line")}
-                  className={annotationTool === "line" ? "bg-[#1B2B4A] text-white hover:bg-[#1B2B4A]/90" : ""}
+                  className={annotationTool === "line" ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
                 >
                   Linha reta
                 </Button>
@@ -1149,17 +1149,17 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                   size="sm"
                   variant={annotationTool === "circle" ? "default" : "outline"}
                   onClick={() => setAnnotationTool("circle")}
-                  className={annotationTool === "circle" ? "bg-[#1B2B4A] text-white hover:bg-[#1B2B4A]/90" : ""}
+                  className={annotationTool === "circle" ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
                 >
                   Círculo
                 </Button>
                 <Button size="sm" variant="outline" onClick={undoAnnotation}>
                   Desfazer
                 </Button>
-                <Button size="sm" onClick={saveAnnotatedFrame} className="bg-[#8B7355] hover:bg-[#8B7355]/90">
+                <Button size="sm" onClick={saveAnnotatedFrame} className="bg-primary hover:bg-primary/90">
                   Salvar marcações
                 </Button>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-muted-foreground">
                   Arraste sobre a imagem para desenhar. A imagem salva entra no laudo.
                 </span>
               </div>
@@ -1175,7 +1175,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                 />
               </div>
             </div>
-            <div className="self-center rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow">
+            <div className="self-center rounded-full bg-card px-4 py-2 text-sm font-medium text-foreground shadow">
               {previewFrame.vista} · {previewFrame.time.toFixed(1)}s
             </div>
           </div>
@@ -1185,15 +1185,15 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
       {/* Popup pós-avaliação: laudo salvo na pasta + enviar para o aluno no WhatsApp */}
       {deliverOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={() => setDeliverOpen(false)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full min-w-0 max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-card text-card-foreground p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div className="pr-4">
-                <h3 className="text-lg font-bold text-slate-800">Avaliação concluída</h3>
-                <p className="mt-1 text-sm text-slate-500">
+                <h3 className="text-lg font-bold text-foreground">Avaliação concluída</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
                   O laudo (PDF) já foi salvo na pasta do aluno. Gostaria de enviar para {deliverName.split(" ")[0]} no WhatsApp?
                 </p>
               </div>
-              <button onClick={() => setDeliverOpen(false)} className="text-slate-400 hover:text-slate-600" aria-label="Fechar">
+              <button onClick={() => setDeliverOpen(false)} className="text-muted-foreground hover:text-muted-foreground" aria-label="Fechar">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1202,7 +1202,7 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
                 {sendingPdf ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
                 {sentPdf ? "Enviado ✓" : "Enviar para o aluno no WhatsApp"}
               </Button>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => { if (deliverBlob) window.open(URL.createObjectURL(deliverBlob), "_blank"); }}>
                   Ver PDF
                 </Button>

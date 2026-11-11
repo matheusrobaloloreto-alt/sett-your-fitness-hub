@@ -1134,10 +1134,10 @@ export default function TeamManager() {
               <div className="space-y-3">
                 {members.map((m) => (
                   <Card key={m.user_id} className="bg-card border-border">
-                    <CardContent className="flex items-center justify-between pt-6">
-                      <div className="flex items-center gap-3">
-                        <Shield className="h-5 w-5 text-muted-foreground" />
-                        <div>
+                    <CardContent className="flex min-w-0 flex-col items-stretch justify-between gap-3 pt-6 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <Shield className="h-5 w-5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 break-words [overflow-wrap:anywhere]">
                         <p className="text-foreground font-sans font-medium">{m.full_name}</p>
                           {m.email && <p className="text-muted-foreground text-xs font-sans">{m.email}</p>}
                           {!m.email && <p className="text-muted-foreground text-xs font-sans">{m.user_id.slice(0, 8)}...</p>}
@@ -1146,7 +1146,7 @@ export default function TeamManager() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex max-w-full flex-wrap items-center gap-2 sm:justify-end">
                         {m.auth_exists === true && (
                           <Badge variant="outline" className="text-success border-success/40">Acesso ativo</Badge>
                         )}

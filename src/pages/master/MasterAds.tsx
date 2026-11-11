@@ -175,7 +175,7 @@ export default function MasterAds() {
   const studentName = (id: string | null) => students.find((student) => student.id === id)?.full_name || "Todos";
 
   return (
-    <div className="mx-auto max-w-7xl space-y-7">
+    <div className="sett-master-page mx-auto max-w-7xl space-y-7">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-eyebrow">Monetização e comunicação</p>

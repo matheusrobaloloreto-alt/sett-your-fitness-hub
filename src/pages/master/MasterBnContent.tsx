@@ -172,7 +172,7 @@ export default function MasterBnContent() {
   };
 
   const visual=useMemo(()=>identity?{brand:{...identity.visual,name:identity.editorial.brand_name},logoUrl:identity.visual.logo_url || (identity.editorial.brand_name==="BN Performance Training" ? Object.entries(data?.assets || {}).find(([path])=>/logo.*\.(png|webp)$/i.test(path))?.[1] || "/bn-content/logo.png":null)}:null,[identity,data?.assets]);
-  return <BnContentBrandContext.Provider value={visual}><main className="flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
+  return <BnContentBrandContext.Provider value={visual}><main className="sett-master-page flex min-w-0 flex-1 flex-col gap-4 p-4 md:p-6">
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-2xl font-semibold">BN Content</h1><p className="text-xs text-muted-foreground">@bnperformancetraining</p></div>
       <div className="flex items-center gap-2"><Button size="icon" variant="outline" title="Atualizar Studio" aria-label="Atualizar Studio" disabled={loading || Boolean(busy)} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} /></Button><Button size="sm" disabled={!data || loading || Boolean(busy)} onClick={() => open()}><Plus />Novo rascunho</Button></div>

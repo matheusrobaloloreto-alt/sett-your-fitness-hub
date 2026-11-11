@@ -1,5 +1,5 @@
 import { useLocation } from "react-router-dom";
-import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { PanelStudentSearch } from "@/components/PanelStudentSearch";
 import { useAuth } from "@/hooks/useAuth";
@@ -13,7 +13,6 @@ export default function PanelHeader({ effectiveCompanyId, linen, assistantName, 
   assistantName: string;
   isWorkoutBuilder: boolean;
 }) {
-  const { isMobile } = useSidebar();
   const location = useLocation();
   const { role, user, loading: authLoading, accessLookupFailed } = useAuth();
   const { isViewingCompany, contextLoading, contextError } = useMaster();
@@ -30,7 +29,7 @@ export default function PanelHeader({ effectiveCompanyId, linen, assistantName, 
       ? "grid grid-cols-[var(--sett-header-side)_minmax(0,1fr)_var(--sett-header-side)] [--sett-header-side:clamp(3.5rem,17vw,4.25rem)] gap-1 px-2 md:grid-cols-[minmax(7rem,1fr)_minmax(0,2fr)_minmax(7rem,1fr)] md:gap-3 md:px-6"
       : "flex gap-3 px-3 sm:px-6"}`}>
       <div className="flex min-w-0 items-center gap-3">
-        {!(linen && isMobile) && <SidebarTrigger aria-label="Abrir ou recolher menu lateral" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" />}
+        {!linen && <SidebarTrigger aria-label="Abrir ou recolher menu lateral" className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground" />}
         <span className={`whitespace-nowrap font-mono text-[10px] tracking-[0.2em] uppercase text-muted-foreground ${canSearchStudents ? "hidden lg:inline" : ""}`}>
           Set / Painel
         </span>

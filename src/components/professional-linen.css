@@ -1,8 +1,12 @@
-.sett-linen {
+.sett-linen,
+body[data-sett-professional-shell] {
   --linen-glass: hsl(var(--card) / calc(1 - .64 * var(--sett-effect-glass, .5)));
   --linen-rim: hsl(0 0% 100% / .82);
   --linen-shadow: 0 10px 30px hsl(var(--foreground) / .10);
   --linen-glint: inset 0 1px 1px hsl(0 0% 100% / .82), inset 0 -1px 1px hsl(var(--foreground) / .08);
+}
+
+.sett-linen {
   --sett-panel-base:
     radial-gradient(ellipse at 0% 0%, hsl(var(--card)) 0%, transparent 60%),
     radial-gradient(ellipse at 100% 6%, hsl(var(--primary) / .13), transparent 60%);
@@ -10,7 +14,8 @@
   background-attachment: fixed;
 }
 
-.dark .sett-linen {
+.dark .sett-linen,
+.dark body[data-sett-professional-shell] {
   --linen-rim: hsl(0 0% 100% / .16);
   --linen-glint: inset 0 1px 1px hsl(0 0% 100% / .16);
 }
@@ -97,7 +102,121 @@
   flex-shrink: 0;
 }
 
-.sett-linen .sett-linen-content button:not([role="tab"]):is(.bg-primary, .bg-background, .bg-secondary) {
+/* Legacy pages share the shell's gutters. Keep intrinsic form/grid widths
+   inside the content column; tables retain their own horizontal scroller. */
+.sett-linen .sett-linen-content :is(.bg-card, fieldset, .grid > *) {
+  min-width: 0;
+}
+
+.sett-linen .sett-linen-content :is(input, textarea, select, [role="combobox"]) {
+  max-width: 100%;
+}
+
+.sett-linen .sett-linen-content :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select, [role="combobox"]) {
+  border-radius: .75rem;
+}
+
+/* Match Button (including asChild links), without reshaping switches,
+   checkboxes, calendar cells or circular icon controls. */
+.sett-linen .sett-linen-content :is(button, a).inline-flex.rounded-md:not([role="tab"]) {
+  border-radius: .75rem;
+}
+
+.sett-linen .sett-master-page {
+  min-width: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The CMS still uses a native select; give it the same readable solid
+   surface as the existing Radix trigger, preserving native keyboard UX. */
+.sett-linen .sett-master-page select {
+  min-height: 2.5rem;
+  padding: .5rem .75rem;
+  border: 1px solid hsl(var(--input));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font: inherit;
+}
+
+.sett-linen .sett-master-page select:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Radix dialogs and popup menus portal to body. The sidebar drawer has
+   its own portal container and continues to use the shell rules above. */
+body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]):not([data-sidebar]):not(.sett-linen-drawer) {
+  border-radius: 1.25rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+body[data-sett-professional-shell] :is([role="listbox"], [role="menu"], [data-radix-popper-content-wrapper] > .bg-popover):not([role="dialog"]) {
+  max-width: calc(100vw - 1.5rem);
+  border-radius: 1rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  box-shadow: var(--linen-glint), var(--linen-shadow);
+}
+
+body[data-sett-professional-shell] :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"]) {
+  border-radius: .625rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]) :is(button, a).inline-flex.rounded-md {
+  border-radius: .75rem;
+}
+
+body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]) :is(input, textarea, select, [role="combobox"]) {
+  max-width: 100%;
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  body[data-sett-professional-shell] :is([role="listbox"], [role="menu"], [data-radix-popper-content-wrapper] > .bg-popover):not([role="dialog"]) {
+    background: var(--linen-glass);
+    -webkit-backdrop-filter: var(--sett-glass-bar-filter, blur(24px) saturate(150%));
+    backdrop-filter: var(--sett-glass-bar-filter, blur(24px) saturate(150%));
+  }
+}
+
+@media (max-width: 639px) {
+  body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]):not([data-sidebar]):not(.sett-linen-drawer):not([data-sett-full-height-sheet]) {
+    max-width: calc(100vw - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
+    overflow-y: auto;
+    scroll-padding-block: 1rem;
+  }
+
+  /* Grid tablists otherwise squeeze long labels into overlapping columns.
+     Scroll the tabs, never the whole page, and keep every tab reachable. */
+  .sett-linen .sett-linen-content [role="tablist"]:not([aria-orientation="vertical"]) {
+    display: flex;
+    justify-content: flex-start;
+  }
+
+  .sett-linen .sett-linen-content [role="tablist"]:not([aria-orientation="vertical"]) > [role="tab"] {
+    flex: 0 0 auto;
+  }
+
+  .sett-linen .sett-linen-content :is(button, a).inline-flex:is(.h-9, .h-10, .h-11):not([role]):not(.w-9):not(.w-10):not(.w-11) {
+    max-width: 100%;
+    height: auto;
+    min-height: 2.5rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .sett-linen .sett-master-page h1 {
+    font-size: clamp(1.5rem, 6vw, 2rem);
+    line-height: 1.2;
+  }
+}
+
+.sett-linen .sett-linen-content button:not([role="tab"]):is(.bg-primary, .bg-background, .bg-secondary),
+body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]) :is(button, a.inline-flex):not([role="tab"]):is(.bg-primary, .bg-background, .bg-secondary) {
   box-shadow: var(--linen-glint), 0 3px 8px hsl(var(--foreground) / .07);
 }
 
@@ -123,13 +242,15 @@
     backdrop-filter: var(--sett-glass-bar-filter, blur(24px) saturate(150%));
   }
 
-  .sett-linen .sett-linen-content button:not([role="tab"]).bg-primary {
+  .sett-linen .sett-linen-content button:not([role="tab"]).bg-primary,
+  body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]) :is(button, a.inline-flex):not([role="tab"]).bg-primary {
     background-color: hsl(var(--primary) / max(.91, calc(1 - .18 * var(--sett-effect-glass, .5))));
     -webkit-backdrop-filter: var(--sett-glass-button-filter, blur(9px));
     backdrop-filter: var(--sett-glass-button-filter, blur(9px));
   }
 
-  .sett-linen .sett-linen-content button:not([role="tab"]):is(.bg-background, .bg-secondary) {
+  .sett-linen .sett-linen-content button:not([role="tab"]):is(.bg-background, .bg-secondary),
+  body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]) :is(button, a.inline-flex):not([role="tab"]):is(.bg-background, .bg-secondary) {
     background-color: hsl(var(--card) / max(.72, calc(1 - .56 * var(--sett-effect-glass, .5))));
     -webkit-backdrop-filter: var(--sett-glass-button-filter, blur(9px));
     backdrop-filter: var(--sett-glass-button-filter, blur(9px));
@@ -252,8 +373,11 @@
   }
 }
 
-.sett-linen .sett-linen-content :is(h1, h2, h3) {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+/* Replace the legacy default serif, while explicit appearance layouts keep
+   their own heading typography (notably Editorial and Futurista). */
+:root:where(:not([data-layout]), [data-layout="classico"]) .sett-linen .sett-linen-content :is(h1, h2, h3, h4, h5, h6, .font-display),
+:root:where(:not([data-layout]), [data-layout="classico"]) body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]) :is(h1, h2, h3, h4, h5, h6, .font-display) {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -.025em;
 }
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useLayoutEffect, useRef } from "react";
 import { AthleticClubProvider } from "@/components/AthleticClubStar";
 import { Outlet, useLocation } from "react-router-dom";
-import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { BnitoAssistantProvider } from "@/components/BnitoFloatingAssistant";
 import { RouteTransition } from "@/components/RouteTransition";
@@ -43,7 +43,6 @@ export function AppLayout() {
 }
 
 function AppLayoutContent() {
-  const { isMobile } = useSidebar();
   const location = useLocation();
   const { role, companyId, user } = useAuth();
   const { viewingCompany, isViewingCompany } = useMaster();
@@ -60,21 +59,56 @@ function AppLayoutContent() {
   const isProfessional = role === "admin" || role === "coordinator" || role === "trainer";
   const isDashboard = ["/admin", "/coordinator", "/trainer"].includes(location.pathname);
   const { settings, isLoading: themeLoading, themeMode } = useTheme();
-  const isStudentProfile = /^\/(admin|coordinator|trainer)\/students\/[^/]+\/?$/.test(location.pathname);
-  const linen = (isProfessional || (role === "master" && isViewingCompany)) && (isMobile || isDashboard || isStudentProfile);
+  // The professional shell belongs to the signed-in role, not a small allowlist
+  // of pages. Keep it consistent while navigating, including the Master panel.
+  const linen = isProfessional || role === "master";
   const surface = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!linen) return;
+    // Radix menus and dialogs render outside the panel. Share only visual
+    // scope/effect tokens, and remove them when leaving the professional area.
+    const body = document.body;
+    const previousScope = body.getAttribute("data-sett-professional-shell");
+    const styles = appearanceEffectStyles(
+      normalizeProfessionalAppearance(settings?.professional_appearance).effects,
+    );
+    const previous = Object.keys(styles).map(name => [name, body.style.getPropertyValue(name)]);
+    body.setAttribute("data-sett-professional-shell", "");
+    for (const [name, value] of Object.entries(styles)) body.style.setProperty(name, String(value));
+    return () => {
+      if (previousScope === null) body.removeAttribute("data-sett-professional-shell");
+      else body.setAttribute("data-sett-professional-shell", previousScope);
+      for (const [name, value] of previous) {
+        if (value) body.style.setProperty(name, value);
+        else body.style.removeProperty(name);
+      }
+    };
+  }, [linen, settings?.professional_appearance]);
   useLayoutEffect(() => {
     if (linen && !themeLoading && !settings && surface.current) {
       const element = surface.current;
       applyPlatformTheme(LINEN_PALETTE, themeMode, element);
-      return () => element.removeAttribute("style");
+      // Master without a configured palette uses the same fallback in its
+      // body-portaled forms. Restore prior body tokens on tenant/role changes.
+      const body = document.body;
+      const previous = Array.from(element.style).map(name => ({
+        name, value: body.style.getPropertyValue(name), priority: body.style.getPropertyPriority(name),
+      }));
+      for (const { name } of previous) body.style.setProperty(name, element.style.getPropertyValue(name));
+      return () => {
+        element.removeAttribute("style");
+        for (const { name, value, priority } of previous) {
+          if (value) body.style.setProperty(name, value, priority);
+          else body.style.removeProperty(name);
+        }
+      };
     }
   }, [linen, settings, themeLoading, themeMode]);
   const isWorkoutBuilder = /\/workout\/[^/]+/.test(location.pathname);
 
   return (
     <AthleticClubProvider>
-      <div ref={surface} className={`min-h-dvh flex w-full min-w-0 bg-paper ${linen ? "sett-linen" : ""} ${isProfessional || isViewingCompany ? "sett-effects" : ""}`}>
+      <div ref={surface} className={`min-h-dvh flex w-full min-w-0 bg-paper ${linen ? "sett-linen sett-effects" : ""}`}>
       <WhatsAppChatPanelProvider mobileDock={linen}>
         <BnitoAssistantProvider>
           <AppSidebar linen={linen} />

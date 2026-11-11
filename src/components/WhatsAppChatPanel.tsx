@@ -115,7 +115,8 @@ export function WhatsAppChatPanelProvider({ children, mobileDock = false }: { ch
                   trigger.focus({ preventScroll: true });
                 }
               }}
-              className="flex h-dvh !w-full !max-w-none flex-col gap-0 overflow-hidden border-l bg-white p-0 dark:border-[#2a3942] dark:bg-[#0b141a] sm:!w-[min(96vw,1100px)] sm:!max-w-none"
+              data-sett-full-height-sheet
+              className="flex h-dvh !w-full !max-w-none flex-col gap-0 overflow-hidden border-l border-border bg-card p-0 sm:!w-[min(96vw,1100px)] sm:!max-w-none"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>Conversas do WhatsApp</SheetTitle>
