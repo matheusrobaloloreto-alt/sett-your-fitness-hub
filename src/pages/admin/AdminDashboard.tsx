@@ -28,6 +28,7 @@ import { fetchCompanyCommercialSettings } from "@/lib/companyCommercialSettings"
 import { isOpenFunnelStage, normalizeLeadSalesStage, normalizeSalesStage, resolveFunnelStageMeta } from "@/lib/salesFunnelView";
 import { OPEN_ENROLLMENT_STATUSES } from "@/lib/studentRoster";
 import { readPages } from "@/lib/pagedRead";
+import { selectDashboardPrescriptionEnrollments } from "@/lib/dashboardPrescriptionEnrollments";
 import { dashboardRenewalsForPeriod, openDashboardRenewalDraft, readDashboardRenewalQueue, type RenewalPeriod } from "@/lib/dashboardRenewals";
 
 import { useTheme } from "@/contexts/ThemeContext";
@@ -48,7 +49,7 @@ const renewalFilters = {
 
 function activeStudentPrescriptionEnrollments() {
   return supabase.from("enrollments")
-    .select("id, student_id, training_start_date, trainer_id, students!inner(full_name, assigned_trainer_id)")
+    .select("id, company_id, student_id, status, start_date, created_at, training_start_date, trainer_id, students!inner(full_name, assigned_trainer_id)")
     .eq("students.status", "active")
     .in("status", OPEN_ENROLLMENT_STATUSES);
 }
@@ -166,7 +167,7 @@ async function fetchDashboardData(effectiveCompanyId: string | null | undefined)
 async function fetchPrescriptionCountdowns(companyId: string, activeEnrolls: any[], today: string, renewalDate: string) {
   const businessToday = parseISO(today);
   const countdowns: any[] = [];
-  const enrollsWithDate = activeEnrolls.filter((e: any) => e.training_start_date);
+  const enrollsWithDate = selectDashboardPrescriptionEnrollments(activeEnrolls, today).filter((e: any) => e.training_start_date);
   if (enrollsWithDate.length > 0) {
     const enrollIds = enrollsWithDate.map((e: any) => e.id);
     const enrollInfoMap: Record<string, { name: string; trainer_id: string | null; student_id: string }> = {};
