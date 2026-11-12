@@ -13,7 +13,7 @@ Preservar um retrato verificável do projeto para ChatGPT (coordenação), Work 
 - A branch `codex/claude-compat` foi encontrada 274 commits atrás de `main`, sem commits à frente, na comparação de 12/11/2026. Não usar como base para trabalho novo.
 - Stack confirmada em `package.json`: Vite, React, TypeScript, Vitest; backend Supabase.
 - `.github/workflows/quality.yml` define `npm ci`, `npm run verify:backend`, `npm run test`, `npm run build` e inspeção do bundle em eventos de push/PR.
-- A CI verificada em arquivo não inclui `npx tsc --noEmit` como etapa explícita. **Estado das execuções recentes e regras obrigatórias de branch ainda não verificados.**
+- O PR #7, integrado em 12/11, passou a executar TypeScript por projeto, lint, testes e build. O primeiro run revelou quatro erros preexistentes de TypeScript; os quatro foram corrigidos em branch e a CI completa passou antes do merge. Regras administrativas de branch continuam sem verificação completa.
 - `scripts/verify-canonical-backend.mjs` prevê produção e staging, separados por `SETT_DEPLOY_TARGET`. Não alterar esses controles sem revisão.
 - `AGENTS.md` e `CLAUDE.md` anteriores contêm handoffs de julho/agosto; os handoffs antigos são referências históricas, não autorização para ações atuais.
 
@@ -43,16 +43,15 @@ Não criar dados clínicos, não inventar treinos e não enviar mensagens a pess
 
 | Prioridade | Item | Estado em 12/11 |
 | --- | --- | --- |
-| P0 | Consolidar instruções de agentes | Proposta em PR de governança |
-| P0 | Criar documento de status e formulário de issue | Proposta em PR de governança |
-| P0 | Definir modelo de PR e evidências | Proposta em PR de governança |
-| P1 | Confirmar branch protection e aprovação obrigatória em `main` | Não verificado |
-| P1 | Inspecionar execuções reais do GitHub Actions e baseline TypeScript | Não verificado |
-| P1 | Verificar acesso e mecanismo de início do Codex Cloud | Não validado |
-| P1 | Testar issue autorizada → Codex → PR → testes | Não iniciado |
-| P2 | Configurar revisão por Work via evento, com permissões | Não iniciado |
-| P2 | Consolidar status e alertas automatizados | Não iniciado |
-| P2 | Validar piloto com Mac desligado | Não iniciado |
+| P0 | Consolidar instruções de agentes | Concluído — PR #1 integrado após CI verde |
+| P0 | Criar documento de status e formulário de issue | Concluído — PR #1 |
+| P0 | Definir modelo de PR e evidências | Concluído — PR #1 |
+| P0 | Fortalecer TypeScript, lint e permissão mínima de CI | Concluído — PR #7 integrado, issue #3 encerrada |
+| P0 | Confirmar/proteger `main` | Bloqueio administrativo — issue #2; rulesets `[]`, leitura de proteção clássica retorna 403 |
+| P1 | Verificar acesso e mecanismo de início do Codex Cloud | Pendente — issue #4 |
+| P1 | Configurar revisão por Work via PR | Pendente — issue #5 |
+| P1 | Validar piloto sem Mac ligado | Pendente — issue #6 |
+| P2 | Monitoramento/alertas automáticos | Planejado; sem cron/Work habilitado |
 
 ## 6. Processo mínimo durante o piloto
 
@@ -72,7 +71,15 @@ Metas: baixa intervenção manual, operação na nuvem, rastreabilidade e nenhum
 - Sem deploy, alteração de secrets, migração destrutiva, integração na `main` ou custo adicional automáticos.
 - Nenhum acesso presumido ao saldo de créditos do Codex.
 
-## 8. Fontes e próximas provas
+## 8. Evidências da implantação de governança — 12/11/2026
+
+- PR #1, `ff6420cca67ea7dbf9e8a8fbb43b2bd5d6250f95`: instruções, status, issue template e modelo de revisão integrados após CI aprovada.
+- PR #7, `949432823bfb87111edb57c61c82865551f85f6f`: CI fortalecida, quatro erros TypeScript corrigidos, testes aprovados e issue #3 encerrada.
+- Issues #2, #4, #5, #6 documentam as pendências reais. Não atribuir execução automática a elas.
+- PR #8: runbook de operação e prompts de Work/Codex em preparação; nenhuma integração com esses agentes foi ativada.
+- `GET /rulesets` retornou `[]`, mas a leitura `GET /branches/main/protection` retornou 403 para a conexão atual. **A proteção clássica da `main` é desconhecida.**
+
+## 9. Fontes e próximas provas
 
 - `AGENTS.md`, `CLAUDE.md`, `docs/project/HANDOFF-CODEX.md`.
 - `docs/project/RELATORIO-2026-08-27-FILA-ACUMULADA-SETT-BN.md`.
