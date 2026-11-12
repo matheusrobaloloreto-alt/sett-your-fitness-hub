@@ -1,0 +1,112 @@
+name: "Tarefa para agentes"
+description: "Planejamento, auditoria, correção ou implementação rastreável"
+title: "[AGENT] "
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Criar esta issue NÃO autoriza execução, uso de créditos, merge nem deploy.
+        Uma autorização explícita e independente deve ser registrada antes de
+        acionar agentes ou alterar sistemas.
+
+  - type: dropdown
+    id: tipo
+    attributes:
+      label: "Tipo de tarefa"
+      options:
+        - "Planejamento"
+        - "Auditoria"
+        - "Correção"
+        - "Implementação"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: executor
+    attributes:
+      label: "Executor proposto (não é acionamento automático)"
+      options:
+        - "A definir"
+        - "ChatGPT — coordenação"
+        - "Work — auditoria/revisão"
+        - "Codex — engenharia"
+    validations:
+      required: true
+
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: "Objetivo"
+      description: "Resultado observável esperado"
+      placeholder: "Descreva a mudança de comportamento desejada."
+    validations:
+      required: true
+
+  - type: textarea
+    id: contexto
+    attributes:
+      label: "Contexto e evidências"
+      description: "Arquivos, incidentes, documentos e links"
+      placeholder: "Inclua evidências sem dados pessoais, segredos ou credenciais."
+    validations:
+      required: true
+
+  - type: textarea
+    id: escopo
+    attributes:
+      label: "Escopo, limites e fora de escopo"
+      description: "Indique arquivos e ambientes autorizados; o que deve permanecer intacto"
+    validations:
+      required: true
+
+  - type: textarea
+    id: aceite
+    attributes:
+      label: "Critérios de aceite"
+      description: "Critérios verificáveis para considerar a tarefa concluída"
+    validations:
+      required: true
+
+  - type: textarea
+    id: testes
+    attributes:
+      label: "Testes e evidências esperadas"
+      description: "Comandos, verificações, PR, QA independente e resultados"
+
+  - type: dropdown
+    id: ambiente
+    attributes:
+      label: "Ambiente potencialmente afetado"
+      options:
+        - "Documentação"
+        - "Código/branch, sem deploy"
+        - "Staging — autorização específica necessária"
+        - "Produção — autorização específica obrigatória"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: consumo
+    attributes:
+      label: "Estimativa de consumo"
+      options:
+        - "Não estimado"
+        - "Sem execução de agentes"
+        - "Baixo"
+        - "Médio"
+        - "Alto"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: seguranca
+    attributes:
+      label: "Restrições obrigatórias"
+      options:
+        - label: "Sem deploy/merge em produção sem aprovação explícita"
+          required: true
+        - label: "Sem novos custos, alteração de credenciais ou permissões sem autorização"
+          required: true
+        - label: "Registrar testes, riscos e impedimentos no GitHub"
+          required: true
