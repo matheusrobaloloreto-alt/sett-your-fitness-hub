@@ -13,7 +13,7 @@ Preservar um retrato verificável do projeto para ChatGPT (coordenação), Work 
 - A branch `codex/claude-compat` foi encontrada 274 commits atrás de `main`, sem commits à frente, na comparação de 12/11/2026. Não usar como base para trabalho novo.
 - Stack confirmada em `package.json`: Vite, React, TypeScript, Vitest; backend Supabase.
 - `.github/workflows/quality.yml` define `npm ci`, `npm run verify:backend`, `npm run test`, `npm run build` e inspeção do bundle em eventos de push/PR.
-- O PR #7, integrado em 12/11, passou a executar TypeScript por projeto, lint, testes e build. O primeiro run revelou quatro erros preexistentes de TypeScript; os quatro foram corrigidos em branch e a CI completa passou antes do merge. Regras administrativas de branch continuam sem verificação completa.
+- O PR #7, integrado em 12/11, passou a executar TypeScript por projeto, lint, testes e build. O primeiro run revelou quatro erros preexistentes de TypeScript; os quatro foram corrigidos em branch e a CI completa passou antes do merge. A branch `main` foi consultada pelo endpoint público de metadados e está `protected:false`, sem rulesets; alterações de proteção continuam dependentes de acesso administrativo.
 - `scripts/verify-canonical-backend.mjs` prevê produção e staging, separados por `SETT_DEPLOY_TARGET`. Não alterar esses controles sem revisão.
 - `AGENTS.md` e `CLAUDE.md` anteriores contêm handoffs de julho/agosto; os handoffs antigos são referências históricas, não autorização para ações atuais.
 
@@ -47,7 +47,7 @@ Não criar dados clínicos, não inventar treinos e não enviar mensagens a pess
 | P0 | Criar documento de status e formulário de issue | Concluído — PR #1 |
 | P0 | Definir modelo de PR e evidências | Concluído — PR #1 |
 | P0 | Fortalecer TypeScript, lint e permissão mínima de CI | Concluído — PR #7 integrado, issue #3 encerrada |
-| P0 | Confirmar/proteger `main` | Bloqueio administrativo — issue #2; rulesets `[]`, leitura de proteção clássica retorna 403 |
+| P0 | Confirmar/proteger `main` | Bloqueio administrativo — issue #2; a branch `main` está desprotegida (`protected:false`), sem rulesets; esta conexão não pode mudar permissões |
 | P1 | Verificar acesso e mecanismo de início do Codex Cloud | Pendente — issue #4 |
 | P1 | Configurar revisão por Work via PR | Pendente — issue #5 |
 | P1 | Validar piloto sem Mac ligado | Pendente — issue #6 |
@@ -77,7 +77,7 @@ Metas: baixa intervenção manual, operação na nuvem, rastreabilidade e nenhum
 - PR #7, `949432823bfb87111edb57c61c82865551f85f6f`: CI fortalecida, quatro erros TypeScript corrigidos, testes aprovados e issue #3 encerrada.
 - Issues #2, #4, #5, #6 documentam as pendências reais. Não atribuir execução automática a elas.
 - PR #8: runbook de operação e prompts de Work/Codex em preparação; nenhuma integração com esses agentes foi ativada.
-- `GET /rulesets` retornou `[]`, mas a leitura `GET /branches/main/protection` retornou 403 para a conexão atual. **A proteção clássica da `main` é desconhecida.**
+- `GET /rulesets` retornou `[]`, mas a leitura `GET /branches/main/protection` retornou 403 para a conexão atual. **A `main` está sem proteção (`protected:false`) e não há rulesets; a API administrativa específica retornou 403.**
 
 ## 9. Fontes e próximas provas
 
