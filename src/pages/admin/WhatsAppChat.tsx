@@ -1224,7 +1224,7 @@ export default function WhatsAppChat() {
       return;
     }
     const eligibility = messageEditEligibility(msg);
-    if (!eligibility.ok) {
+    if (eligibility.ok === false) {
       toast.error(
         eligibility.code === "whatsapp_edit_window_expired"
           ? "O prazo de 15 minutos para editar esta mensagem expirou."
@@ -1252,7 +1252,7 @@ export default function WhatsAppChat() {
     }
 
     const eligibility = messageEditEligibility(editState.message);
-    if (!eligibility.ok) {
+    if (eligibility.ok === false) {
       toast.error(
         eligibility.code === "whatsapp_edit_window_expired"
           ? "O prazo de 15 minutos para editar esta mensagem expirou."
@@ -1264,7 +1264,7 @@ export default function WhatsAppChat() {
       newMessage,
       editState.message.content,
     );
-    if (!editedText.ok) {
+    if (editedText.ok === false) {
       toast.error(
         editedText.code === "whatsapp_edit_content_unchanged"
           ? "A mensagem não foi alterada."
