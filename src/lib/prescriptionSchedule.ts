@@ -189,9 +189,17 @@ export function selectCurrentPlanCycleWindow<T extends PrescriptionScheduleCycle
   if (visible.length <= windowSize) return visible;
 
   const activeIndex = visible.findIndex((item) => item.status === "active");
+  // ES2022-compatible equivalent to findLastIndex (not available in all targets).
+  let latestMaterializedIndex = -1;
+  for (let index = visible.length - 1; index >= 0; index--) {
+    if (visible[index].has_workouts || visible[index].has_bundle) {
+      latestMaterializedIndex = index;
+      break;
+    }
+  }
   const anchorIndex = activeIndex >= 0
     ? activeIndex
-    : Math.max(0, visible.findLastIndex((item) => Boolean(item.has_workouts || item.has_bundle)));
+    : Math.max(0, latestMaterializedIndex);
   const windowStart = Math.floor(anchorIndex / windowSize) * windowSize;
   return visible.slice(windowStart, windowStart + windowSize);
 }
