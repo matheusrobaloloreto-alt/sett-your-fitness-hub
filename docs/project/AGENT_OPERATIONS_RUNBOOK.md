@@ -86,7 +86,7 @@ Documentação: https://help.openai.com/en/articles/20001545-using-codex-cloud .
 
 ## 8. Branch protection — bloqueio administrativo conhecido
 
-Em 12/11/2026, a consulta aos rulesets do repositório retornou lista vazia; a consulta à proteção tradicional retornou `403 Resource not accessible by integration`. Não afirmar que a `main` é totalmente desprotegida nem protegida. Acesso administrativo adequado é necessário para confirmar e aplicar.
+Em 12/11/2026, `GET /branches/main` retornou `protected:false` e `protection.enabled:false`; `GET /rulesets?includes_parents=true` retornou lista vazia. Portanto, a `main` está **sem proteção ativa**. A consulta direta ao endpoint administrativo de proteção retornou `403 Resource not accessible by integration`: a conexão atual pode verificar o estado, mas **não pode criar/alterar a regra**. É necessário acesso administrativo pela interface ou uma integração com permissão específica.
 
 Issue de controle: #2. Recomenda-se:
 - exigir PR para `main`;
