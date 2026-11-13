@@ -1,6 +1,7 @@
 # SETT / BN Performance — Estado operacional
 
 **Revisão inicial:** 2026-11-12  
+**Atualização operacional:** 2026-11-13  
 **Natureza:** inventário em leitura do repositório. **Não é homologação do sistema em produção.**
 
 ## 1. Objetivo
@@ -13,7 +14,7 @@ Preservar um retrato verificável do projeto para ChatGPT (coordenação), Work 
 - A branch `codex/claude-compat` foi encontrada 274 commits atrás de `main`, sem commits à frente, na comparação de 12/11/2026. Não usar como base para trabalho novo.
 - Stack confirmada em `package.json`: Vite, React, TypeScript, Vitest; backend Supabase.
 - `.github/workflows/quality.yml` define `npm ci`, `npm run verify:backend`, `npm run test`, `npm run build` e inspeção do bundle em eventos de push/PR.
-- O PR #7, integrado em 12/11, passou a executar TypeScript por projeto, lint, testes e build. O primeiro run revelou quatro erros preexistentes de TypeScript; os quatro foram corrigidos em branch e a CI completa passou antes do merge. A branch `main` foi consultada pelo endpoint público de metadados e está `protected:false`, sem rulesets; alterações de proteção continuam dependentes de acesso administrativo.
+Em 13/11 a branch `main` passou a estar protegida por ruleset ativo `Protect main - SETT`, com PR e check `verify` obrigatórios, sem bypass.
 - `scripts/verify-canonical-backend.mjs` prevê produção e staging, separados por `SETT_DEPLOY_TARGET`. Não alterar esses controles sem revisão.
 - `AGENTS.md` e `CLAUDE.md` anteriores contêm handoffs de julho/agosto; os handoffs antigos são referências históricas, não autorização para ações atuais.
 
@@ -47,10 +48,10 @@ Não criar dados clínicos, não inventar treinos e não enviar mensagens a pess
 | P0 | Criar documento de status e formulário de issue | Concluído — PR #1 |
 | P0 | Definir modelo de PR e evidências | Concluído — PR #1 |
 | P0 | Fortalecer TypeScript, lint e permissão mínima de CI | Concluído — PR #7 integrado, issue #3 encerrada |
-| P0 | Confirmar/proteger `main` | Bloqueio administrativo — issue #2; a branch `main` está desprotegida (`protected:false`), sem rulesets; esta conexão não pode mudar permissões |
-| P1 | Verificar acesso e mecanismo de início do Codex Cloud | Pendente — issue #4 |
-| P1 | Configurar revisão por Work via PR | Pendente — issue #5 |
-| P1 | Validar piloto sem Mac ligado | Pendente — issue #6 |
+| P0 | Proteger `main` | Concluído 13/11; ruleset ativo exige PR e check `verify`, bloqueia force-push/exclusão; issue #2 encerrada |
+| P1 | Codex Cloud | Ambiente SETT Cloud publicado e visível no Mac; acionamento direto por este chat não disponível (#4) |
+| P1 | Gatilho Work | Pendente (#5); tentativa de fontes de evento retornou 404 nesta sessão |
+| P1 | Piloto sem Mac | Issue #9 autorizada, execução ainda não iniciada (#6) |
 | P2 | Monitoramento/alertas automáticos | Planejado; sem cron/Work habilitado |
 
 ## 6. Processo mínimo durante o piloto
@@ -66,7 +67,7 @@ Metas: baixa intervenção manual, operação na nuvem, rastreabilidade e nenhum
 
 ## 7. Segurança, uso e autonomia
 
-- Não usar créditos do Work/Codex indisponíveis sem nova autorização; em 12/11 o usuário informou renovação semanal prevista para 16/11.
+Em 13/11 o usuário informou saldo de 624 créditos compartilhados Work/Codex e autorizou o piloto; o saldo não é consultável por esta conexão, portanto verificar uso real e não criar custos adicionais.
 - Uma implementação ativa por projeto durante o piloto; até duas tentativas de correção automática antes de escalar.
 - Sem deploy, alteração de secrets, migração destrutiva, integração na `main` ou custo adicional automáticos.
 - Nenhum acesso presumido ao saldo de créditos do Codex.
@@ -77,7 +78,7 @@ Metas: baixa intervenção manual, operação na nuvem, rastreabilidade e nenhum
 - PR #7, `949432823bfb87111edb57c61c82865551f85f6f`: CI fortalecida, quatro erros TypeScript corrigidos, testes aprovados e issue #3 encerrada.
 - Issues #2, #4, #5, #6 documentam as pendências reais. Não atribuir execução automática a elas.
 - PR #8: runbook de operação e prompts de Work/Codex em preparação; nenhuma integração com esses agentes foi ativada.
-- `GET /rulesets` retornou `[]`, mas a leitura `GET /branches/main/protection` retornou 403 para a conexão atual. **A `main` está sem proteção (`protected:false`) e não há rulesets; a API administrativa específica retornou 403.**
+Em 13/11, a `main` está `protected:true`, ruleset ativo `Protect main - SETT` e check obrigatório `verify`.
 
 ## 9. Fontes e próximas provas
 
@@ -87,3 +88,12 @@ Metas: baixa intervenção manual, operação na nuvem, rastreabilidade e nenhum
 - Provas pendentes: proteções de branch, check-runs reais, status de deploy, permissões para gatilhos de Work/Codex.
 
 Para alterar o estado de uma pendência neste documento, adicionar data, link da evidência e autor da validação.
+
+## 10. Prontidão do piloto — 13/11/2026
+
+- SETT Cloud publicado no Codex Cloud e visível no Mac, confirmado pelo usuário; execução real ainda não comprovada.
+- Issue #9 autorizada, restrita a testes sem deploy ou merge. Referência de orçamento para a primeira tarefa: 120 créditos, **não imposta tecnicamente**.
+- A conexão GitHub deste chat não dispõe de ação para iniciar uma tarefa Codex Cloud. Criar uma issue não executa o Codex.
+- Para Work, o gatilho GitHub PR pronto para revisão deverá ser criado na interface Work; tentativa de listar eventos via automações retornou 404 nesta sessão. Prompt: docs/project/WORK_PR_REVIEW_PROMPT.md.
+- Nenhum gatilho Work foi instalado, nenhuma tarefa Codex executada e nenhum saldo usado por essas ações nesta sessão.
+- Próximo teste: execução real de #9 no Codex Cloud, PR/CI e revisão Work; registrar custo observado e intervenções.
