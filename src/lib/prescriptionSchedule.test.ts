@@ -194,6 +194,47 @@ describe("prescriptionSchedule", () => {
       .toEqual([9, 10, 11, 12]);
   });
 
+  describe("janela nominal com oito ciclos", () => {
+    const orderedCycles = Array.from({ length: 8 }, (_, index) => cycle(
+      index + 1,
+      new Date(Date.UTC(2026, 0, 1 + index * 42)).toISOString().slice(0, 10),
+      new Date(Date.UTC(2026, 0, 1 + index * 42 + 41)).toISOString().slice(0, 10),
+      { status: "pending" },
+    ));
+
+    it.each(["has_bundle", "has_workouts"] as const)(
+      "ancora no último ciclo com %s quando não há ciclo ativo",
+      (contentFlag) => {
+        const materialized = orderedCycles.map((item) => ({
+          ...item,
+          [contentFlag]: item.cycle_number === 2 || item.cycle_number === 7,
+        }));
+
+        expect(selectCurrentPlanCycleWindow(materialized, 168, 42).map((item) => item.cycle_number))
+          .toEqual([5, 6, 7, 8]);
+      },
+    );
+
+    it("usa a primeira janela quando não há ciclo ativo nem conteúdo materializado", () => {
+      expect(selectCurrentPlanCycleWindow(orderedCycles, 168, 42).map((item) => item.cycle_number))
+        .toEqual([1, 2, 3, 4]);
+    });
+
+    it.each(["has_bundle", "has_workouts"] as const)(
+      "prioriza o terceiro ciclo ativo sobre o sétimo com %s",
+      (contentFlag) => {
+        const activeAndMaterialized = orderedCycles.map((item) => ({
+          ...item,
+          status: item.cycle_number === 3 ? "active" : "pending",
+          [contentFlag]: item.cycle_number === 7,
+        }));
+
+        expect(selectCurrentPlanCycleWindow(activeAndMaterialized, 168, 42).map((item) => item.cycle_number))
+          .toEqual([1, 2, 3, 4]);
+      },
+    );
+  });
+
   it("preserva dois programas materializados mesmo quando suas datas se sobrepõem", () => {
     const canonical = cycle(1, "2026-08-01", "2026-09-11", { has_workouts: true });
     const imported = cycle(9, "2026-08-02", "2026-09-12", { has_workouts: true });
