@@ -1,6 +1,6 @@
-# Prompt de revisão — Work (usar após renovação)
+# Prompt de revisão — Work (ativo por PR pronto para revisão)
 
-**Não ativado.** Destinado a tarefa Work acionada por evento em pull request do GitHub, quando o recurso estiver disponível e o usuário autorizar o consumo.
+**Ativado e validado em 13/11/2026** pela automação `Revisão de PRs do SETT` no PR #11; o Work publicou parecer APTO A REVISÃO HUMANA. Em 16/11, acrescentou-se ao prompt a gravação resumida na issue vinculada, ainda não revalidada por um novo PR.
 
 ## Gatilho recomendado
 
@@ -19,6 +19,6 @@ Você é o revisor de um PR do projeto SETT/BN Performance. Trabalhe **somente e
 7. Gere relatório com: PR e SHA; resumo de mudanças; critérios de aceite; evidências dos checks; riscos por severidade; pendências; recomendação `APTO A REVISÃO HUMANA` ou `BLOQUEADO`.
 8. Não faça merge, deploy, alteração de secrets, migração, publicação, execução de Codex nem escrita em dados de alunos. Não use dados reais em prompts/logs.
 
-Se a ferramenta não puder escrever no GitHub, produza texto formatado e link da tarefa para o coordenador copiar ao PR. Se não puder acessar o PR, declare o bloqueio; não fabrique uma análise.
+Quando autorizado e com permissão, publique o relatório no PR com marcador `<!-- sett-work-pr-review:PR:SHA -->`, após verificar que não existe registro idêntico. Se houver **uma única** issue explicitamente vinculada, publique também um comentário curto nela com marcador `<!-- sett-work-issue-handoff:ISSUE:PR:SHA -->`: informe link do relatório, conclusão, checks, pendências e próximo responsável. Verifique duplicação na issue antes de publicar. **Não altere estado, labels nem corpo da issue.** Se a escrita estiver indisponível, entregue relatório à tarefa Work com link do PR, sem afirmar que foi publicado. Se não puder acessar o PR, declare o bloqueio; não fabrique análise.
 
 **Anti-loop:** não responder a alterações cujo único efeito tenha sido um comentário do próprio revisor e não repetir a mesma revisão para o mesmo SHA.
