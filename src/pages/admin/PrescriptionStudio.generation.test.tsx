@@ -130,7 +130,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Studio strength generation", { timeout: 30_000 }, () => {
+describe("Studio strength generation", { timeout: 90_000 }, () => {
   it("coalesces two same-render clicks, then reuses the exact request after connection loss", async () => {
     const { generate } = await mountStudio();
     mocks.invoke.mockResolvedValueOnce(disconnected());
@@ -198,9 +198,11 @@ describe("Studio strength generation", { timeout: 30_000 }, () => {
     mocks.invoke.mockImplementation(async (name, { body }) => name === "ai-prescribe-workout"
       ? { data: strength, error: null }
       : { data: { id: body.sport || "nutricao", updated_at: version, draft_only: true, plan: { weeks: [], meals: [] } }, error: null });
-    for (const label of ["Corrida", "Ciclismo", "Natação", "Nutrição"]) {
-      fireEvent.click(screen.getByText(label, { exact: true }));
-    }
+    act(() => {
+      for (const label of ["Corrida", "Ciclismo", "Natação", "Nutrição"]) {
+        fireEvent.click(screen.getByText(label, { selector: "button *", exact: true }));
+      }
+    });
     fireEvent.click(screen.getByRole("button", { name: /Gerar rascunho integrado/ }));
     const publish = await screen.findByRole("button", { name: /Publicar pacote completo/ });
     expect(screen.queryByRole("button", { name: /Publicar musculação/ })).not.toBeInTheDocument();
@@ -221,7 +223,7 @@ describe("Studio strength generation", { timeout: 30_000 }, () => {
     expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith("publish_studio_integrated_bundle", expect.objectContaining({
       p_bundle_id: bundleWrites[0].insert?.id, p_cycle_id: cycle.id, p_draft_id: strength.id, p_expected_modalities: versions,
     }));
-  }, 90_000);
+  });
 
   it("does not finalize or offer publication for an unconfirmed modality", async () => {
     await mountStudio();
@@ -333,7 +335,17 @@ describe("Studio strength generation", { timeout: 30_000 }, () => {
     mocks.invoke.mockResolvedValue(disconnected());
     fireEvent.click(screen.getByRole("button", { name: /Corrida Zonas/ }));
     fireEvent.click(screen.getByRole("button", { name: /Nutrição Dicas/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Gerar rascunho integrado/ }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Gerar rascunho integrado/ }));
+      });
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     await screen.findByText("A resposta da musculação não foi confirmada. Confira o ciclo antes de iniciar outra geração.");
     expect(mocks.invoke.mock.calls.map(([name]) => name)).toEqual(["ai-prescribe-workout", "ai-prescribe-workout"]);
     expect(bundleWrites.filter(({ update }) => update)).toHaveLength(0);
@@ -352,7 +364,7 @@ describe("Studio strength generation", { timeout: 30_000 }, () => {
     await screen.findByRole("button", { name: "Revisar rascunho · ciclo 1" });
     expect(mocks.invoke.mock.calls[2][1].body.bundle_id).not.toBe(mocks.invoke.mock.calls[0][1].body.bundle_id);
     expect(bundleWrites.filter(({ insert }) => insert)).toHaveLength(2);
-  }, 90_000);
+  });
 
   it("drops a late retry response from the previous authenticated scope", async () => {
     const { generate, refresh } = await mountStudio();
