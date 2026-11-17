@@ -69,11 +69,15 @@ describe("Benito assistant integration", () => {
     const professor = readProjectFile("src/components/BnitoFloatingAssistant.tsx");
     const student = readProjectFile("src/components/StudentBnitoAssistant.tsx");
     const sprite = readProjectFile("src/components/BenitoSprite.tsx");
+    const professorDrag = readProjectFile("src/lib/useProfessorAssistantDrag.ts");
 
     expect(professor).toContain("aria-label={`Abrir ${name}`}");
     expect(student).toContain("aria-label={`Abrir ${name}`}");
     expect(professor).toContain("onPointerDown={startDrag}");
-    expect(professor).toContain('window.addEventListener("pointermove", handlePointerMove');
+    expect(professor).toContain('from "@/lib/useProfessorAssistantDrag"');
+    expect(professor).toContain('consumeDragGesture(event.detail)');
+    expect(professorDrag).toContain('window.addEventListener("pointermove"');
+    expect(professorDrag).toContain('window.addEventListener("pointercancel"');
     expect(student).toContain('from "@/lib/useBenitoDrag"');
     expect(student).toContain("onPointerDown={startDrag}");
     expect(student).toContain("consumeDragGesture()");

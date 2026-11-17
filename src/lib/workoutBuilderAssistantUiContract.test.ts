@@ -10,6 +10,10 @@ const appLayout = readFileSync(
   `${process.cwd()}/src/components/AppLayout.tsx`,
   "utf8",
 );
+const panelHeader = readFileSync(
+  `${process.cwd()}/src/components/PanelHeader.tsx`,
+  "utf8",
+);
 const whatsappPanel = readFileSync(
   `${process.cwd()}/src/components/WhatsAppChatPanel.tsx`,
   "utf8",
@@ -67,15 +71,20 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
 
   it("does not render a second named assistant action in the page header", () => {
     expect(workoutBuilder).not.toContain('onClick={() => callBnito("review")}');
-    expect(appLayout).toContain("isWorkoutBuilder");
-    expect(appLayout).toMatch(/!isWorkoutBuilder\s*&&/);
+    expect(workoutBuilder.match(/onClick=\{callBnito\}/g)).toHaveLength(1);
+    expect(appLayout).toMatch(/<PanelHeader\b[^>]*\bisWorkoutBuilder=\{isWorkoutBuilder\}/);
+    expect(panelHeader).toMatch(/\{!isWorkoutBuilder\s*&&\s*\(\s*<BnitoContextButton\b/);
   });
 
   it("uses a responsive full-width header layout with unclipped identity and actions", () => {
-    expect(workoutBuilder).toContain('data-testid="workout-builder-header"');
-    expect(workoutBuilder).toContain('data-testid="workout-builder-header-actions"');
-    expect(workoutBuilder).toContain("min-w-0");
-    expect(workoutBuilder).toContain("justify-self-end");
+    const headerClasses = workoutBuilder.match(/data-testid="workout-builder-header"\s+className="([^"]+)"/)?.[1].split(" ");
+    const actionClasses = workoutBuilder.match(/data-testid="workout-builder-header-actions"\s+className="([^"]+)"/)?.[1].split(" ");
+    expect(headerClasses).toEqual(expect.arrayContaining(["grid", "min-w-0", "w-full"]));
+    expect(headerClasses?.some((className) => className.startsWith("xl:grid-cols-"))).toBe(true);
+    expect(workoutBuilder).toMatch(/<span className="min-w-0 break-words">\{cycleInfo\.student_name\}/);
+    expect(actionClasses).toEqual(expect.arrayContaining([
+      "flex", "min-w-0", "w-full", "overflow-x-auto", "[&>button]:shrink-0", "xl:[justify-content:safe_end]",
+    ]));
     expect(workoutBuilder).not.toContain("<MessageSquare");
     expect(whatsappPanel).not.toContain("isWorkoutBuilder");
     expect(workoutBuilder).toContain('data-testid="bnito-audit-sprite-clip"');
@@ -132,9 +141,9 @@ describe("WorkoutBuilder assistant and header UX contract", () => {
     expect(workoutBuilder).toContain("weeklyPrescriptionModeForLoadedWorkouts(loaded)");
     expect(workoutBuilder).toContain("individualWeeklyUiVersionForLoadedWorkouts(loaded)");
     expect(workoutBuilder).toContain('weeklyPrescriptionMode === "weekly"');
-    expect(workoutBuilder).toContain("serializeWeeklyExercise(");
+    // The shared serializer owns legacy passthrough (covered by weeklyStrengthDraft.test.ts).
+    expect(workoutBuilder).toMatch(/serializeWeeklyExercise\(\s*exercise,\s*weeklyPrescriptionMode,\s*weeklyUiVersion,?\s*\)/);
     expect(workoutBuilder).toContain("individualWeeklyUiVersionForExercise(ex, weeklyPrescriptionMode)");
-    expect(workoutBuilder).toContain("return exercise;");
   });
 
   it("shows a single complete metric editor only for new weekly prescriptions", () => {
