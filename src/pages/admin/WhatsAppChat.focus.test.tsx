@@ -45,7 +45,9 @@ const sends = () => api.fetch.mock.calls.map(([, opts]) => JSON.parse(opts.body)
 
 it('captures a file returned during focus validation, blocks all sends, supports cancellation and explicit recovery',async()=>{
  let finish!:(v:unknown)=>void;
- render(<WhatsAppChat embedded navigationState={{...request,loginAccess:undefined,prefillMessage:'synthetic ordinary message'}} />);
+ await act(async () => {
+  render(<WhatsAppChat embedded navigationState={{...request,loginAccess:undefined,prefillMessage:'synthetic ordinary message'}} />);
+ });
  const composer=await screen.findByDisplayValue('synthetic ordinary message');
  await waitFor(()=>expect(api.rpc).toHaveBeenCalledTimes(1));
  api.rpc.mockImplementationOnce(()=>new Promise(r=>{finish=r}));
