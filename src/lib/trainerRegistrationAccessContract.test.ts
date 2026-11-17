@@ -21,7 +21,7 @@ describe("trainer registration and appearance access contract", () => {
       'path="/trainer/anamnesis" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAnamnesis"><AnamnesisManager /></FeatureRoute>}',
     );
     expect(appSource).toContain(
-      'path="/trainer/appearance" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAppearance"><AppearanceSettings /></FeatureRoute>}',
+      'path="/trainer/appearance" element={<FeatureRoute allowedRoles={["trainer"]} requiredFeature="hasAppearance" requiredModule="appearance"><AppearanceSettings /></FeatureRoute>}',
     );
     expect(appSource).toContain('<Route path="/trainer/financial" element={<Navigate to="/trainer" replace />} />');
   });
