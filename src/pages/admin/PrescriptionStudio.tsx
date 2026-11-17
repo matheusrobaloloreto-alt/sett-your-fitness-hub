@@ -26,7 +26,6 @@ import { loadCompanyPDFMeta } from '@/lib/prescription/pdfMeta';
 import { CompanyMethodologyContext } from '@/lib/prescription/companyMethodologyContext';
 import { sendPdfToStudentWhatsApp } from "@/lib/sendStudentMedia";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Tabs, TabsContent, TabsList, TabsTrigger } from "@/lib/studioUi";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import {
   buildBnitoOrchestrationPlan,
   buildPrescriptionIntegration,
@@ -1887,12 +1886,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
         <div className="min-w-0 leading-tight">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold text-foreground">Prescrição Integrada</h1>
-            <BnitoContextButton
-              studentId={studentId || undefined}
-              label="studio de prescricao"
-              context="Fluxo principal do treinador: anamnese, avaliacao, prescricoes integradas e PDFs."
-              question="Me orienta no fluxo completo deste aluno: anamnese, avaliacao, prescricao e PDF?"
-            />
           </div>
           <p className="text-xs text-primary font-medium">Anamnese → Avaliação → Prescrições integradas → PDFs</p>
         </div>
@@ -1904,13 +1897,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
           <CardHeader className="pb-3">
             <CardTitle className="flex flex-wrap items-center gap-2 text-base">
               Aluno
-              <BnitoContextButton
-                studentId={studentId || undefined}
-                label="aluno no studio"
-                context="Seleciona o aluno e permite gerar link de anamnese ou iniciar prescricao."
-                question="O que devo conferir antes de abrir a prescricao deste aluno no Studio?"
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -2003,13 +1989,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
             <Card>
               <CardContent className="pt-5">
                 <div className="mb-3 flex justify-end">
-                  <BnitoContextButton
-                    studentId={studentId || undefined}
-                    label="tab anamnese do Studio"
-                    context="Etapa de anamnese do Studio: link publico, resposta do aluno e dados que alimentam a prescricao."
-                    question="Como devo conduzir a anamnese antes de prescrever?"
-                    text="BNITO"
-                  />
                 </div>
                 {anamneseLoading ? (
                   <div className="flex items-center gap-2 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
@@ -2067,13 +2046,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
           {/* ── TAB 2: AVALIAÇÃO ── */}
           <TabsContent value="avaliacao" className="space-y-4 mt-4">
             <div className="flex justify-end">
-              <BnitoContextButton
-                studentId={studentId || undefined}
-                label="tab avaliacao do Studio"
-                context="Etapa de avaliacao do Studio, incluindo video, frames e IA para compensacoes funcionais."
-                question="O que devo observar nesta avaliacao antes de montar o treino?"
-                text="BNITO"
-              />
             </div>
             {assessment && (
               <Card><CardContent className="pt-4">
@@ -2128,13 +2100,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                   <Badge variant={prescriptionIntegration.readiness.status === "pronto" ? "default" : "outline"} className="text-xs">
                     {prescriptionIntegration.readiness.status}
                   </Badge>
-                  <BnitoContextButton
-                    studentId={studentId || undefined}
-                    label="resultado integrado"
-                    context="Resumo tecnico que cruza anamnese, avaliacao funcional, restricoes, objetivo e regras para a IA prescritoras."
-                    question="Revise este resultado integrado e me diga quais cuidados devo manter na prescricao."
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
@@ -2274,13 +2239,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                 <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                   Orquestração {assistantName}
                   <Badge variant="outline" className="text-xs">6 semanas</Badge>
-                  <BnitoContextButton
-                    studentId={studentId || undefined}
-                    label="orquestracao BNITO"
-                    context="BNITO unifica os agentes de musculacao, corrida e nutricao em um ciclo de 6 semanas com trocas de estimulo a cada 2 semanas."
-                    question="Revise a orquestracao de 6 semanas e me diga onde preciso tomar cuidado antes de gerar."
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
@@ -2298,13 +2256,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
               <CardHeader className="pb-3">
                 <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                   O que esse aluno vai receber?
-                  <BnitoContextButton
-                    studentId={studentId || undefined}
-                    label="modalidades do Studio"
-                    context="Escolha de musculacao, corrida, natacao, ciclismo e nutricao no Studio."
-                    question="Quais modalidades fazem sentido para este aluno e como evitar excesso de carga?"
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -2433,13 +2384,6 @@ export default function PrescriptionStudio({ embeddedStudentId, initialTab }: Pr
                 <CardHeader className="pb-3">
                   <CardTitle className="flex flex-wrap items-center gap-2 text-base">
                     Prescrições geradas
-                    <BnitoContextButton
-                      studentId={studentId || undefined}
-                      label="prescricoes geradas no Studio"
-                      context="Resultados integrados e PDFs prontos para revisao pelo professor."
-                      question="Me ajuda a revisar estes resultados antes de baixar os PDFs?"
-                      className="ml-auto"
-                    />
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">

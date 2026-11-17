@@ -26,7 +26,6 @@ import { cadenceTone, formatCadence } from "@/lib/contactCadence";
 import { useCompanyExperiencePolicy } from '@/hooks/useCompanyExperiencePolicy';
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useToast } from "@/hooks/use-toast";
 import { formatCEP, formatCPF, formatPhoneForCountry } from "@/lib/masks";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
@@ -712,11 +711,6 @@ export default function Portfolio() {
                     <div className="ml-2 flex shrink-0 items-center gap-1">
                       {!bulkInteractionLocked && (
                         <>
-                          <BnitoContextButton
-                            label={`aluno ${s.full_name}`}
-                            context={`Aluno da carteira. Status: ${studentRecordStatusLabel(s.status)}. ${s.cycle_end ? `Ciclo atual termina em ${format(parseISO(s.cycle_end), "dd/MM/yyyy")}.` : "Sem ciclo ativo identificado."}`}
-                            question="Qual é a ação técnica ou operacional prioritária para este aluno?"
-                          />
                           {whatsAppDetails?.chatIds && <StudentChatButton
                             studentId={s.id}
                             studentName={s.full_name}

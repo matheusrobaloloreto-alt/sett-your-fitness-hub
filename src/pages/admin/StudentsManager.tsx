@@ -21,7 +21,6 @@ import { formatCPF, formatCEP, formatPhoneForCountry } from "@/lib/masks";
 import { lookupCep, lookupCepByAddress } from "@/lib/cep";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { StudentChatButton } from "@/components/admin/StudentChatButton";
 import { AthleticClubStar } from "@/components/AthleticClubStar";
 import { preRegistrationUrl } from "@/lib/publicFlowLinks";
@@ -545,11 +544,6 @@ export default function StudentsManager() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-4xl text-primary">ALUNOS</h1>
-              <BnitoContextButton
-                label="gestao de alunos"
-                context="Lista de alunos, status, treinador, plano, inicio de matricula, dados de cobranca e proximo passo operacional."
-                question="Como devo priorizar alunos pendentes, sem treinador, sem plano ou aguardando prescricao?"
-              />
             </div>
             <p className="text-muted-foreground font-sans">Gerencie alunos, atribua treinadores e inicie matrículas</p>
           </div>
@@ -646,11 +640,6 @@ export default function StudentsManager() {
                     </div>
                   </div>
                   <div className="flex min-w-0 flex-wrap items-center gap-1 max-md:[&_button]:min-h-11 max-md:[&_button]:min-w-11">
-                    <BnitoContextButton
-                      label={`aluno ${s.full_name}`}
-                      context={`Aluno na lista. Status: ${studentRecordStatusLabel(s.status)}. ${studentContractLabel(s.currentContract)}. Professor da carteira atribuído: ${s[PORTFOLIO_TRAINER_COLUMN] ? "sim" : "não"}.`}
-                      question="Qual o proximo passo operacional e tecnico para este aluno?"
-                    />
                     <StudentChatButton studentId={s.id} studentName={s.full_name} phone={s.whatsapp || s.phone} />
                     {canManageStudent(s) && s.status === "active" && !s.user_id && (
                       <Button
@@ -704,12 +693,6 @@ export default function StudentsManager() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-primary">
                 {editing ? "EDITAR ALUNO" : "NOVO ALUNO"}
-                <BnitoContextButton
-                  label="cadastro do aluno"
-                  context="Formulario do aluno com dados de contato, cobranca, status e observacoes usados para matricula e links de pagamento."
-                  question="Quais campos sao criticos para evitar problema de cobranca, matricula ou prescricao?"
-                  className="ml-auto"
-                />
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">

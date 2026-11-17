@@ -13,6 +13,7 @@ import FormDefinitionManager from '@/components/admin/FormDefinitionManager';
 import { settingsHelpRegistry } from '@/components/admin/settingsHelpRegistry';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { WeeklyContactSettings } from '@/components/admin/WeeklyContactSettings';
 import SettingsWorkspaceLinks from '@/components/admin/SettingsWorkspaceLinks';
 import { PrescriptionMethodologyEditor } from '@/components/admin/PrescriptionMethodologyEditor';
 import { WhatsAppSequenceEditor } from '@/components/admin/WhatsAppSequenceEditor';
@@ -95,6 +96,9 @@ function CompanySettingsEditor({ companyId, companyName }: { companyId: string; 
   const [draft, setDraft] = useState<SequenceSettings | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get('tab');
+  const requestedFlowId = searchParams.get('flowId')?.toLowerCase();
+  const preferredFlowId = requestedFlowId && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(requestedFlowId)
+    ? requestedFlowId : undefined;
   const section: Section = SECTIONS.find(([key]) => key === requestedSection)?.[0] ?? 'messages';
   const [visitedSections, setVisitedSections] = useState<Section[]>([]);
   const showEditor = (key: Section) => section === key || visitedSections.includes(key);
@@ -201,7 +205,11 @@ function CompanySettingsEditor({ companyId, companyName }: { companyId: string; 
         <div className="space-y-2"><h2 className="text-sm font-medium">Prévia</h2><div className="min-h-56 whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-4 text-sm leading-relaxed" data-testid="message-preview">{preview || '—'}</div></div>
       </div>}
     </section>}
-    {section === 'contact_policy' && <section className="space-y-6">{numbers('contact_policy', CONTACT_FIELDS)}
+    {showEditor('contact_policy') && <section hidden={section !== 'contact_policy'} className="space-y-6">
+      <WeeklyContactSettings key={preferredFlowId} companyId={companyId} preferredFlowId={preferredFlowId} companyMinimum={record.settings.contact_policy.minimum_interval_hours} />
+      <h2 className="font-semibold">Proteções e horários da empresa</h2>
+      <p className="text-sm text-muted-foreground">Use Salvar no topo para aplicar os ajustes gerais abaixo.</p>
+      {numbers('contact_policy', CONTACT_FIELDS)}
       <fieldset className="space-y-3"><legend className="text-sm font-medium">Dias de envio</legend><div className="flex flex-wrap gap-4">{['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((day, index) => <span key={day} className="inline-flex items-center"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.contact_policy.weekdays.includes(index + 1)} onChange={e => change('contact_policy', 'weekdays', e.target.checked ? [...draft.contact_policy.weekdays, index + 1].sort() : draft.contact_policy.weekdays.filter(v => v !== index + 1))} />{day}</label><SettingHelp label={`Dia de envio: ${day}`} {...settingsHelpRegistry.weekdays} /></span>)}</div></fieldset>
       <div className="max-w-md space-y-2"><HelpLabel htmlFor="contact-timezone">Fuso horário</HelpLabel><select id="contact-timezone" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.contact_policy.timezone} onChange={e => change('contact_policy', 'timezone', e.target.value)}>{['America/Sao_Paulo', 'America/Manaus', 'America/Belem', 'America/Recife', 'America/Rio_Branco', 'Europe/Lisbon', 'UTC'].map(zone => <option key={zone}>{zone}</option>)}</select></div>
     </section>}

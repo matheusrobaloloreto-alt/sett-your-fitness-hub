@@ -26,7 +26,6 @@ import {
   Loader2, CheckCircle2, Circle, AlertCircle, Dumbbell, Activity,
   ChevronDown, ChevronUp, ClipboardCheck, MessageCircle,
 } from "lucide-react";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import {
   buildBnitoOrchestrationPlan,
@@ -509,11 +508,6 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
           {label}
           {open[id] ? <ChevronUp className="h-4 w-4 opacity-50" /> : <ChevronDown className="h-4 w-4 opacity-50" />}
         </button>
-        <BnitoContextButton
-          label={`prescricao integrada: ${label}`}
-          context={`Secao ${label} dentro da prescricao integrada. Campos atuais ajudam a IA a decidir objetivo, carga, restricoes e modalidade.`}
-          question={`Como devo preencher e interpretar a secao ${label} para uma prescricao mais segura?`}
-        />
       </div>
       {open[id] && <div className="px-4 pb-4 pt-2 grid gap-3 grid-cols-2 md:grid-cols-3 border-t border-line">{children}</div>}
     </div>
@@ -561,11 +555,6 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
           <p className="text-eyebrow">Prescrição</p>
           <div className="flex items-center gap-2">
             <h1 className="font-display text-3xl">Prescrição</h1>
-            <BnitoContextButton
-              label="prescricao integrada com IA"
-              context="Fluxo que junta anamnese, avaliacao funcional, musculacao e corrida em uma prescricao sincronizada."
-              question="Me ajuda a decidir se devo gerar musculacao, corrida ou ambos para este aluno?"
-            />
           </div>
           <p className="text-sm text-muted-foreground">Anamnese única · IAs em sequência · periodização sincronizada</p>
         </div>
@@ -575,12 +564,6 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 Aluno
-                <BnitoContextButton
-                  label="aluno da prescricao integrada"
-                  context="Selecao de aluno para carregar anamnese e avaliacao funcional antes da geracao integrada."
-                  question="O que devo conferir neste aluno antes de gerar uma prescricao integrada?"
-                  className="ml-auto"
-                />
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -604,12 +587,6 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   Anamnese
-                  <BnitoContextButton
-                    label="anamnese da prescricao integrada"
-                    context="Campos de objetivo, nivel, restricoes, endurance, frequencia, equipamento e saude usados por todas as IAs."
-                    question="Quais pontos desta anamnese podem mudar a montagem do treino?"
-                    className="ml-auto"
-                  />
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">Preenchida uma vez — usada por todas as IAs selecionadas.</p>
               </CardHeader>
@@ -677,12 +654,6 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
                   <Badge variant={prescriptionIntegration.readiness.status === "pronto" ? "default" : "outline"} className="text-xs">
                     {prescriptionIntegration.readiness.status}
                   </Badge>
-                  <BnitoContextButton
-                    label="resultado integrado da prescricao"
-                    context="Resumo tecnico que cruza anamnese, avaliacao funcional, objetivo, restricoes e regras para gerar musculacao/corrida."
-                    question="Revise este resultado integrado e aponte cuidados para a prescricao."
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
@@ -723,12 +694,6 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
                 <CardTitle className="flex items-center gap-2 text-base">
                   Orquestração {assistantName}
                   <Badge variant="outline" className="text-xs">6 semanas</Badge>
-                  <BnitoContextButton
-                    label="orquestracao BNITO integrada"
-                    context="BNITO coordena os agentes de musculacao, corrida e nutricao em 6 semanas, com mudanca de estimulo a cada 2 semanas."
-                    question="Revise esta periodizacao e me diga se os blocos estao coerentes com o aluno."
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
@@ -746,12 +711,6 @@ export default function UnifiedPrescriber({ embeddedStudentId }: UnifiedPrescrib
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   Quais prescrições gerar?
-                  <BnitoContextButton
-                    label="modalidades da prescricao"
-                    context="Escolha entre musculacao e corrida/cardio, considerando interferencia, objetivo e restricoes."
-                    question="Com base em objetivo, rotina e restricoes, quais prescricoes devo gerar e como sincronizar?"
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent>

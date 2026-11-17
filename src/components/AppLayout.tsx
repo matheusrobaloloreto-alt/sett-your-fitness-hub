@@ -7,7 +7,6 @@ import { BnitoAssistantProvider } from "@/components/BnitoFloatingAssistant";
 import { RouteTransition } from "@/components/RouteTransition";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
-import { useCompanyAiConfig } from "@/lib/companyAiConfig";
 import { useStaffPresence } from "@/hooks/useStaffPresence";
 import { PlatformAdSlot } from "@/components/PlatformAdSlot";
 import { applyPlatformTheme } from "@/lib/personalTheme";
@@ -49,8 +48,6 @@ function AppLayoutContent() {
   // Empresa em foco: master vendo uma empresa → a dela; senão a do usuário.
   const effectiveCompanyId =
     role === "master" ? (isViewingCompany ? viewingCompany?.id ?? null : null) : companyId;
-  const { config } = useCompanyAiConfig(effectiveCompanyId);
-  const assistantName = config.assistant_name || "Setty";
   // Registro de presença de colaboradores (coordinator/trainer): entrada, heartbeat e saída.
   useStaffPresence(role, effectiveCompanyId ?? null);
   const noPadding =
@@ -116,7 +113,7 @@ function AppLayoutContent() {
             <ErrorBoundary scope="section">
               <Suspense fallback={<div aria-hidden="true" className="h-14 shrink-0" />}>
                 <PanelHeader key={`${effectiveCompanyId}:${user?.id}:${role}`}
-                  effectiveCompanyId={effectiveCompanyId} linen={linen} assistantName={assistantName}
+                  effectiveCompanyId={effectiveCompanyId} linen={linen}
                   isWorkoutBuilder={isWorkoutBuilder} />
               </Suspense>
             </ErrorBoundary>

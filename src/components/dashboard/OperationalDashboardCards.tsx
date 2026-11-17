@@ -322,7 +322,8 @@ export function OperationalContactCadenceCard({ scope, routePrefix, allowChat = 
   const query = useQuery({
     queryKey: ["dashboard-operational-cadence", companyId, scope],
     enabled: Boolean(scope),
-    refetchInterval: realtimeUnavailable ? 30_000 : false,
+    // A receipt or deadline can change the queues without a message row update.
+    refetchInterval: realtimeUnavailable ? 30_000 : 60_000,
     queryFn: async () => {
       const { companyId, studentIds } = scope!;
       const page = (from: number, to: number, ids?: string[]) => contactCadenceClient
@@ -339,7 +340,7 @@ export function OperationalContactCadenceCard({ scope, routePrefix, allowChat = 
     let reconnecting = false;
     const refreshFromMessage = (message: Record<string, unknown>, updated: boolean) => {
       if (message.company_id !== companyId || message.type === "reaction") return;
-      const hasOutgoingIdentity = message.is_from_me === true && Boolean(message.sender_id) && Boolean(message.message_id_external);
+      const hasOutgoingIdentity = message.is_from_me === true && Boolean(message.message_id_external);
       const confirmedOutgoing = hasOutgoingIdentity && !message.failed_at
         && (["sent", "delivered", "read"].includes(String(message.status))
           || (message.status === "accepted" && ["SERVER_ACK", "SENT"].includes(String(message.provider_status))

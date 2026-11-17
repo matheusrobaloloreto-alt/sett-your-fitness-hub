@@ -3,7 +3,7 @@
 // imagem-arquivo) — desenhar à mão dava resultado ruim. O modelo de dados (student_body_limitations)
 // já suporta os 4 tipos, então voltar a expor os outros sistemas depois é simples.
 // Sempre visível, preenchível MANUALMENTE; cor por origem: AZUL = manual, VERMELHO = avaliação.
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ interface Merged {
 }
 interface Draft { type: LimitationType; severity: string; note: string }
 
-export function StudentBodyMap({ studentId }: { studentId: string }) {
+export function StudentBodyMap({ studentId, headingAction }: { studentId: string; headingAction?: ReactNode }) {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [gender, setGender] = useState<"male" | "female">("male");
   const [manual, setManual] = useState<Record<string, Merged>>({});
@@ -110,8 +110,11 @@ export function StudentBodyMap({ studentId }: { studentId: string }) {
   return (
     <Card className="bg-card border-border">
       <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider">Mapa de limitações</h3>
+        <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+          <div className="space-y-2">
+            <h3 className="text-sm font-mono-data font-semibold text-muted-foreground uppercase tracking-wider">Mapa de limitações</h3>
+            {headingAction}
+          </div>
           <span className="text-[11px] text-muted-foreground">Clique numa região para marcar</span>
         </div>
 

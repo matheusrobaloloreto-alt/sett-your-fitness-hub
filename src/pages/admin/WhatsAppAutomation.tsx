@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Link } from "react-router-dom";
+import { SettingsDraftGuard } from "@/components/admin/SettingsDraftGuard";
+import { WeeklyContactSettings } from "@/components/admin/WeeklyContactSettings";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,7 +113,6 @@ type Flow = {
   is_active: boolean;
   created_at: string;
   company_id?: string;
-  weekly_contact_inactivity_hours?: number;
 };
 
 const triggerLabels: Record<string, string> = {
@@ -127,8 +129,11 @@ export default function WhatsAppAutomation() {
 
   const effectiveCompanyId = role === "master" ? (isViewingCompany ? viewingCompany?.id : null) : companyId;
 
+  const staffEditor = role === "coordinator" || role === "trainer";
+
   const [flows, setFlows] = useState<Flow[]>([]);
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(null);
+  const [weeklyDraftPending, setWeeklyDraftPending] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newFlowName, setNewFlowName] = useState("");
   const [newFlowTrigger, setNewFlowTrigger] = useState("manual");
@@ -185,21 +190,6 @@ export default function WhatsAppAutomation() {
     loadFlows();
   };
 
-  const saveWeeklyInactivity = async (flow: Flow, hours: number) => {
-    if (!effectiveCompanyId || !Number.isInteger(hours) || hours < 0 || hours > 720) {
-      toast.error("Informe entre 0 e 720 horas de inatividade");
-      return;
-    }
-    const { data, error } = await supabase.from("automation_flows")
-      .update({ weekly_contact_inactivity_hours: hours })
-      .eq("id", flow.id).eq("company_id", effectiveCompanyId).eq("trigger_type", "weekly_contact")
-      .eq("weekly_contact_inactivity_hours", flow.weekly_contact_inactivity_hours ?? 0)
-      .select("id");
-    if (error || data?.length !== 1) toast.error("Não foi possível confirmar a regra de inatividade");
-    else toast.success("Regra de inatividade salva");
-    loadFlows();
-  };
-
   const handleDeleteFlow = async (flowId: string) => {
     if (!effectiveCompanyId) { toast.error("Selecione uma empresa para excluir fluxo"); return; }
     try {
@@ -215,8 +205,9 @@ export default function WhatsAppAutomation() {
   };
 
   const selectedFlow = flows.find(f => f.id === selectedFlowId);
+  const weeklySettingsSearch = new URLSearchParams({ tab: 'contact_policy', flowId: selectedFlow?.id ?? '' });
 
-  return (
+  const content = (
     <>
       <div className="flex flex-col h-[calc(100vh-3.5rem)]">
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
@@ -268,6 +259,7 @@ export default function WhatsAppAutomation() {
                 flows.map(flow => (
                   <button
                     key={flow.id}
+                    disabled={weeklyDraftPending && selectedFlowId !== flow.id}
                     onClick={() => setSelectedFlowId(flow.id)}
                     className={`w-full text-left p-3 border-b border-border hover:bg-muted/50 transition-colors flex items-center gap-3 ${selectedFlowId === flow.id ? "bg-primary/10" : ""}`}
                   >
@@ -306,33 +298,20 @@ export default function WhatsAppAutomation() {
                       <Label htmlFor="flow-active" className="text-xs text-muted-foreground">Ativo</Label>
                       <Switch id="flow-active" checked={selectedFlow.is_active} onCheckedChange={() => handleToggleActive(selectedFlow)} />
                     </div>
-                    <Button variant="destructive" size="sm" className="gap-1" onClick={() => handleDeleteFlow(selectedFlow.id)}>
+                    <Button variant="destructive" size="sm" className="gap-1" disabled={weeklyDraftPending} onClick={() => handleDeleteFlow(selectedFlow.id)}>
                       <Trash2 className="h-3.5 w-3.5" />Excluir
                     </Button>
                   </div>
                 </div>
 
-                {selectedFlow.trigger_type === "weekly_contact" && (
-                  <form
-                    key={`${selectedFlow.id}:${selectedFlow.weekly_contact_inactivity_hours ?? 0}`}
-                    className="flex flex-wrap items-end gap-3 border-b border-border p-3"
-                    onSubmit={event => {
-                      event.preventDefault();
-                      const hours = Number(new FormData(event.currentTarget).get("inactivity_hours"));
-                      void saveWeeklyInactivity(selectedFlow, hours);
-                    }}
-                  >
-                    <div className="space-y-1">
-                      <Label htmlFor="weekly-contact-inactivity">Inatividade mínima da conversa (horas)</Label>
-                      <Input id="weekly-contact-inactivity" name="inactivity_hours" type="number" min={0} max={720}
-                        step={1} required defaultValue={selectedFlow.weekly_contact_inactivity_hours ?? 0} />
-                      <p className="text-xs text-muted-foreground">
-                        Salvo: {selectedFlow.weekly_contact_inactivity_hours ?? 0} h.
-                        Com 0 h, vale o intervalo entre contatos. Acima de 0 h, entradas do aluno e envios da equipe reiniciam a espera.
-                      </p>
-                    </div>
-                    <Button type="submit" size="sm" variant="outline">Salvar regra</Button>
-                  </form>
+                {selectedFlow.trigger_type === "weekly_contact" && effectiveCompanyId && selectedFlow.company_id === effectiveCompanyId && (
+                  role === "admin" || role === "master" ? (
+                    <Link to={{ pathname: '/admin/settings', search: '?' + weeklySettingsSearch.toString() }} className="border-b border-border p-3 text-sm font-medium underline">
+                      Editar condições do contato semanal em Configurações
+                    </Link>
+                  ) : staffEditor && (
+                    <WeeklyContactSettings key={`${effectiveCompanyId}:${selectedFlow.id}`} companyId={effectiveCompanyId} flowId={selectedFlow.id} onPendingChange={setWeeklyDraftPending} />
+                  )
                 )}
                 <FlowCanvas flowId={selectedFlow.id} companyId={selectedFlow.company_id} triggerType={selectedFlow.trigger_type} />
               </>
@@ -342,4 +321,5 @@ export default function WhatsAppAutomation() {
       </div>
     </>
   );
+  return staffEditor ? <SettingsDraftGuard key={effectiveCompanyId}>{content}</SettingsDraftGuard> : content;
 }

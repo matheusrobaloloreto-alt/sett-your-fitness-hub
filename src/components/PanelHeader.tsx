@@ -7,10 +7,9 @@ import { useCompanyFeatures } from "@/hooks/useCompanyFeatures";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useMaster } from "@/contexts/MasterContext";
 
-export default function PanelHeader({ effectiveCompanyId, linen, assistantName, isWorkoutBuilder }: {
+export default function PanelHeader({ effectiveCompanyId, linen, isWorkoutBuilder }: {
   effectiveCompanyId: string | null | undefined;
   linen: boolean;
-  assistantName: string;
   isWorkoutBuilder: boolean;
 }) {
   const location = useLocation();
@@ -43,10 +42,9 @@ export default function PanelHeader({ effectiveCompanyId, linen, assistantName, 
           label="painel atual"
           context="Ajuda contextual geral da rota atual, considerando permissao, modulo e tarefa em andamento."
           question="Me orienta sobre esta tela e os proximos passos tecnicos?"
-          text={assistantName}
           className={canSearchStudents
-            ? "col-start-3 row-start-1 ml-auto min-w-0 max-w-full gap-1 px-1.5 md:gap-2 md:px-3 [&>span]:truncate"
-            : "ml-auto max-w-[7.5rem] md:max-w-full [&>span]:truncate"}
+            ? "col-start-3 row-start-1 ml-auto"
+            : "ml-auto"}
         />
       )}
     </header>

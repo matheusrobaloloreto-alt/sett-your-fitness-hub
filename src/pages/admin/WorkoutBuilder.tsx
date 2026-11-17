@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Plus, Trash2, Search, Save, Play, ChevronUp, ChevronDown, BarChart3, Sparkles, MessageCircle, Loader2, AlertCircle, Dumbbell, PersonStanding, Clock, ClipboardList, GripVertical, Library, Copy } from "lucide-react";
-import { BnitoContextButton, useBnitoAssistant } from "@/components/BnitoFloatingAssistant";
+import { useBnitoAssistant } from "@/components/BnitoFloatingAssistant";
 import { BenitoSprite } from "@/components/BenitoSprite";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import { BodyMap } from "@/components/body/BodyMap";
@@ -583,7 +583,6 @@ export default function WorkoutBuilder() {
   const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
   const [preRegistrationLoadError, setPreRegistrationLoadError] = useState(false);
   const [preRegistrationLoading, setPreRegistrationLoading] = useState(false);
-  const [showVolume, setShowVolume] = useState(true);
   const [bnitoLoading, setBnitoLoading] = useState<"review" | null>(null);
   const [bnitoResponse, setBnitoResponse] = useState<BnitoResponse | null>(null);
   const [validationResult, setValidationResult] = useState<PrescriptionValidationResult | null>(null);
@@ -1658,14 +1657,14 @@ export default function WorkoutBuilder() {
         {/* Header */}
         <div
           data-testid="workout-builder-header"
-          className="grid w-full gap-4 xl:grid-cols-[minmax(18rem,1fr)_minmax(0,auto)] xl:items-start"
+          className="grid min-w-0 w-full gap-3 xl:grid-cols-[minmax(15rem,1fr)_minmax(0,max-content)] xl:items-start"
         >
           <div className="flex min-w-0 items-start gap-2 sm:gap-4">
             <Button variant="ghost" size="icon" className="mt-0.5 shrink-0" onClick={() => navigate(returnTo)}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="min-w-0 flex-1">
-              <h1 className="break-words text-2xl leading-tight text-primary sm:text-3xl">
+              <h1 className="whitespace-nowrap text-[clamp(.875rem,3.8vw,1.375rem)] leading-tight text-primary">
                 {isTemplate ? "TREINO DA BIBLIOTECA" : "PRESCRIÇÃO DE TREINO"}
               </h1>
               {isTemplate ? (
@@ -1686,12 +1685,12 @@ export default function WorkoutBuilder() {
           </div>
           <div
             data-testid="workout-builder-header-actions"
-            className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end xl:max-w-[42rem] xl:justify-self-end"
+            className="flex w-full min-w-0 gap-2 overflow-x-auto pb-1 [&>button]:shrink-0 xl:[justify-content:safe_end]"
           >
             {!isTemplate && cycleInfo && (
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                  <Button variant="outline" size="sm" className="shrink-0">
                     <ClipboardList className="mr-2 h-4 w-4" />Pré-cadastro
                   </Button>
                 </PopoverTrigger>
@@ -1722,14 +1721,11 @@ export default function WorkoutBuilder() {
                 </PopoverContent>
               </Popover>
             )}
-            <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setShowVolume(!showVolume)}>
-              <BarChart3 className="h-4 w-4 mr-2" />Volume
-            </Button>
             {!isTemplate && (
               <Button
                 variant="outline"
                 size="sm"
-                className="col-span-2 w-full sm:col-span-1 sm:w-auto"
+                className="shrink-0"
                 disabled={saving}
                 onClick={() => {
                   setPendingTemplate(null);
@@ -1737,16 +1733,15 @@ export default function WorkoutBuilder() {
                 }}
               >
                 <Library className="h-4 w-4 mr-2" />
-                <span className="sm:hidden">Biblioteca de treinos</span>
-                <span className="hidden sm:inline">Usar treino da biblioteca</span>
+                Biblioteca de Treinos
               </Button>
             )}
             {!isTemplate && (
-              <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => saveAsTemplate()} disabled={saving || workouts.length === 0}>
+              <Button variant="outline" size="sm" className="shrink-0" onClick={() => saveAsTemplate()} disabled={saving || workouts.length === 0}>
                 <Save className="h-4 w-4 mr-2" />Salvar na biblioteca
               </Button>
             )}
-            <Button onClick={handleSaveAll} disabled={saving} size="sm" className="w-full sm:w-auto">
+            <Button onClick={handleSaveAll} disabled={saving} size="sm" className="shrink-0">
               <Save className="h-4 w-4 mr-2" />
               {saving ? "Salvando..." : isTemplate ? "Salvar na Biblioteca" : "Salvar Tudo"}
             </Button>
@@ -1838,11 +1833,6 @@ export default function WorkoutBuilder() {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-2">
                       <h2 className="break-words text-lg text-primary sm:text-xl">EXERCÍCIOS ({workout.exercises.length})</h2>
-                      <BnitoContextButton
-                        label={`exercicios do ${workout.title || `treino ${wIdx + 1}`}`}
-                        context={`Treino atual: ${workout.title || `Treino ${wIdx + 1}`}. Exercicios: ${workout.exercises.map((ex) => ex.exercise_name).join(", ") || "nenhum"}.`}
-                        question="A ordem, selecao e volume destes exercicios fazem sentido para o objetivo do aluno?"
-                      />
                     </div>
                     <Button className="w-full sm:w-auto" onClick={() => setLibraryOpen(true)} disabled={saving}>
                       <Plus className="h-4 w-4 mr-2" />Adicionar
@@ -2297,65 +2287,57 @@ export default function WorkoutBuilder() {
 
           {/* Assistive sidebar */}
           <div className="shrink-0 space-y-4 lg:w-80">
-            {showVolume && (
-              <Card className="border-border bg-card">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-primary text-sm flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4" />
-                    VOLUME SEMANAL PRESCRITO
-                    <BnitoContextButton
-                      label="volume semanal do treino"
-                      context={`${volumeWeekLabel} · Volume prescrito por grupos musculares: ${JSON.stringify(weeklyVolume)}`}
-                      question="Esse volume semanal esta alto, baixo ou adequado para o contexto do aluno?"
-                      className="ml-auto"
-                    />
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground font-sans">
-                    {volumeWeekLabel} · Séries por grupo muscular (todos os treinos)
+            <Card className="border-border bg-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-primary text-sm flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  VOLUME SEMANAL PRESCRITO
+                </CardTitle>
+                <p className="text-xs text-muted-foreground font-sans">
+                  {volumeWeekLabel} · Séries por grupo muscular (todos os treinos)
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {Object.keys(weeklyVolume).length === 0 ? (
+                  <p className="text-xs text-muted-foreground font-sans text-center py-4">
+                    Configure os músculos dos exercícios na Biblioteca para ver o volume
                   </p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {Object.keys(weeklyVolume).length === 0 ? (
-                    <p className="text-xs text-muted-foreground font-sans text-center py-4">
-                      Configure os músculos dos exercícios na Biblioteca para ver o volume
-                    </p>
-                  ) : (
-                    Object.entries(weeklyVolume)
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([muscle, sets]) => (
-                        <div key={muscle} className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-sans text-foreground">{muscle}</span>
-                            <span className="text-xs font-sans font-medium text-foreground">
-                              {sets % 1 === 0 ? sets : sets.toFixed(1)}
-                            </span>
-                          </div>
-                          <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${getVolumeColor(sets)}`}
-                              style={{ width: `${Math.min((sets / 20) * 100, 100)}%` }}
-                            />
-                          </div>
+                ) : (
+                  Object.entries(weeklyVolume)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([muscle, sets]) => (
+                      <div key={muscle} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-sans text-foreground">{muscle}</span>
+                          <span className="text-xs font-sans font-medium text-foreground">
+                            {sets % 1 === 0 ? sets : sets.toFixed(1)}
+                          </span>
                         </div>
-                      ))
-                  )}
-                  {uncoveredVolumeExercises > 0 && (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
-                      {uncoveredVolumeExercises} exercício(s) sem alvo anatômico não entram no total.
-                    </div>
-                  )}
-                  {Object.keys(weeklyVolume).length > 0 && (
-                    <div className="pt-2 border-t border-border">
-                      <div className="flex items-center gap-2 text-xs font-sans text-muted-foreground">
-                        <div className="h-2 w-2 rounded-full bg-emerald-500" /> ≤10
-                        <div className="h-2 w-2 rounded-full bg-yellow-500 ml-2" /> 11-16
-                        <div className="h-2 w-2 rounded-full bg-red-500 ml-2" /> &gt;16
+                        <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${getVolumeColor(sets)}`}
+                            style={{ width: `${Math.min((sets / 20) * 100, 100)}%` }}
+                          />
+                        </div>
                       </div>
+                    ))
+                )}
+                {uncoveredVolumeExercises > 0 && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900">
+                    {uncoveredVolumeExercises} exercício(s) sem alvo anatômico não entram no total.
+                  </div>
+                )}
+                {Object.keys(weeklyVolume).length > 0 && (
+                  <div className="pt-2 border-t border-border">
+                    <div className="flex items-center gap-2 text-xs font-sans text-muted-foreground">
+                      <div className="h-2 w-2 rounded-full bg-emerald-500" /> ≤10
+                      <div className="h-2 w-2 rounded-full bg-yellow-500 ml-2" /> 11-16
+                      <div className="h-2 w-2 rounded-full bg-red-500 ml-2" /> &gt;16
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {(saveIssues.length > 0 || saveRepairs.length > 0) && (
               <Card
@@ -2425,7 +2407,7 @@ export default function WorkoutBuilder() {
                     />
                   </span>
                   <div className="min-w-0">
-                    <CardTitle className="text-sm text-primary">{assistantName}</CardTitle>
+                    <CardTitle className="text-sm text-primary">Auditoria do treino</CardTitle>
                     <p className="mt-1 text-xs leading-relaxed text-muted-foreground font-sans">
                       Auditoria técnica do treino antes de salvar.
                     </p>

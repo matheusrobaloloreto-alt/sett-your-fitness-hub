@@ -12,7 +12,6 @@ import { Plus, UserCheck, Clock, Users } from "lucide-react";
 import { addDays, format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import AdminDashboard from "@/pages/admin/AdminDashboard";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 
 import { useMaster } from "@/contexts/MasterContext";
 
@@ -201,11 +200,6 @@ export default function CoordinatorDashboard() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-4xl text-primary">MATRÍCULAS</h1>
-              <BnitoContextButton
-                label="dashboard de matriculas"
-                context={`Fila de matriculas com ${pendingStudents.length} pendentes, ${activeStudents.length} ativos e ${students.length} alunos totais.`}
-                question="Como devo priorizar esta fila de matriculas e alunos?"
-              />
             </div>
             <p className="text-muted-foreground font-sans">Fila de alunos e matrículas</p>
           </div>
@@ -278,12 +272,6 @@ export default function CoordinatorDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-primary text-xl">
               FILA DE ALUNOS
-              <BnitoContextButton
-                label="fila de alunos"
-                context="Fila de alunos com status pendente, triagem, ativo ou inativo; usada para matricular e liberar."
-                question="Qual criterio usar para tirar alunos da fila e liberar matricula?"
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent>

@@ -7,7 +7,6 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart3, AlertTriangle, Activity } from "lucide-react";
 import { MuscleRadar } from "@/components/student/MuscleRadar";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
 import { resolveWorkoutForCycleWeek, type StoredWeeklyExercisePrescription } from "@/lib/weeklyStrengthPeriodization";
 import { calculateWeeklyMuscleVolume } from "@/lib/workoutVolume";
@@ -275,12 +274,6 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
         <CardTitle className="text-primary text-lg flex items-center gap-2">
           <BarChart3 className="h-5 w-5" />
           ANÁLISE DE TREINO
-          <BnitoContextButton
-            label="analise de treino"
-            context={`Análise nos últimos ${period} dias: conclusão das sessões iniciadas e volume. Distribuição apenas dos snapshots históricos disponíveis, possivelmente parcial. Sem denominador para adesão à meta; não inferir sub ou sobretreino.`}
-            question="Como devo interpretar esta analise e ajustar a prescricao?"
-            className="ml-auto"
-          />
         </CardTitle>
         <Select value={period} onValueChange={setPeriod}>
           <SelectTrigger className="w-[140px] bg-secondary border-border">

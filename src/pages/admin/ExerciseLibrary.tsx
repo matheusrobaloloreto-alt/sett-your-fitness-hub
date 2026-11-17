@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, Pencil, Trash2, Play, Globe, Building2, Upload, Loader2, Dumbbell } from "lucide-react";
@@ -763,11 +762,6 @@ export default function ExerciseLibrary() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-4xl text-primary">BIBLIOTECA DE EXERCÍCIOS</h1>
-              <BnitoContextButton
-                label="biblioteca de exercicios"
-                context="Cadastro de exercicios, categorias, videos e alvos anatomicos primarios/secundarios usados pela prescricao."
-                question="Como devo cadastrar categorias e alvos musculares para a prescricao ficar mais precisa?"
-              />
             </div>
             <p className="text-muted-foreground font-sans">
               {isMaster ? "Gerencie a biblioteca global e de empresas" : "Gerencie os exercícios da sua empresa"}
@@ -843,11 +837,6 @@ export default function ExerciseLibrary() {
           <div key={group}>
             <div className="mb-3 flex items-center gap-2">
               <h2 className="text-lg text-primary capitalize">{group}</h2>
-              <BnitoContextButton
-                label={`grupo muscular ${group}`}
-                context={`Grupo muscular/categoria da biblioteca: ${group}. Ajuda para organizar exercicios, categorias, foco primario/secundario e prescricao.`}
-                question={`Como devo usar os exercicios de ${group} na prescricao e nos filtros da biblioteca?`}
-              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-6">
               {exs.map((ex) => (
@@ -1030,12 +1019,6 @@ export default function ExerciseLibrary() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-primary">
               {editing ? "EDITAR EXERCÍCIO" : "NOVO EXERCÍCIO"}
-              <BnitoContextButton
-                label="cadastro de exercicio"
-                context="Formulario de exercicio: nome, categorias, video e musculos primarios/secundarios."
-                question="Me ajuda a definir as categorias e os alvos primarios/secundarios deste exercicio?"
-                className="ml-auto"
-              />
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -1086,11 +1069,6 @@ export default function ExerciseLibrary() {
               <div className="space-y-3 p-3 rounded-lg bg-secondary/50 border border-border">
                 <div className="flex items-center gap-2">
                   <Label className="font-sans text-sm font-semibold">Distribuição de Carga (Volume)</Label>
-                  <BnitoContextButton
-                    label="distribuicao de carga do exercicio"
-                    context="Define quais musculos recebem volume primario ou secundario no calculo semanal."
-                    question="Quais musculos devem entrar como primarios e secundarios neste exercicio?"
-                  />
                 </div>
                 <p className="text-xs text-muted-foreground font-sans">
                   Configure quais músculos este exercício trabalha para o cálculo de volume semanal.

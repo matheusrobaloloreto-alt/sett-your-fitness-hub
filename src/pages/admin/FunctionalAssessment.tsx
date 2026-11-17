@@ -17,7 +17,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Upload, X, ClipboardCheck, AlertCircle } from "lucide-react";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import VideoAssessment from "@/components/VideoAssessment";
 import { saveStudentFile } from "@/lib/studentFiles";
 import { AssessmentBodyMap } from "@/components/body/AssessmentBodyMap";
@@ -192,12 +191,6 @@ export default function FunctionalAssessment() {
           <p className="text-eyebrow">Avaliação</p>
           <div className="flex items-center gap-2">
             <h1 className="font-display text-3xl">Avaliação Funcional com IA</h1>
-            <BnitoContextButton
-              studentId={studentId || undefined}
-              label="avaliacao funcional"
-              context="Avaliacao postural, overhead squat, queixa principal, historico de lesoes e laudo usado para prescricao."
-              question="Como devo interpretar a avaliacao funcional para ajustar a prescricao com seguranca?"
-            />
           </div>
           <p className="text-sm text-muted-foreground">Postura estática + overhead squat · laudo técnico · contexto para a prescrição</p>
         </div>
@@ -206,13 +199,6 @@ export default function FunctionalAssessment() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               Aluno
-              <BnitoContextButton
-                studentId={studentId || undefined}
-                label="aluno da avaliacao funcional"
-                context="Selecao do aluno para carregar avaliacao funcional e contexto clinico."
-                question="Que informacoes do aluno devo revisar antes de gerar a avaliacao funcional?"
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -245,13 +231,6 @@ export default function FunctionalAssessment() {
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   Fotos
-                  <BnitoContextButton
-                    studentId={studentId || undefined}
-                    label="fotos da avaliacao funcional"
-                    context="Fotos de postura frontal/lateral/posterior e overhead squat frontal/lateral/posterior."
-                    question="Quais angulos e sinais devo observar nestas fotos antes de confiar no laudo?"
-                    className="ml-auto"
-                  />
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">Envie o que tiver — nem todas são obrigatórias.</p>
               </CardHeader>
@@ -289,13 +268,6 @@ export default function FunctionalAssessment() {
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   Composição e técnica
-                  <BnitoContextButton
-                    studentId={studentId || undefined}
-                    label="composicao e tecnica"
-                    context="Medidas corporais, perimetros, observacoes tecnicas, assimetrias e execucao para alimentar a avaliacao funcional."
-                    question="Como devo interpretar medidas e observacoes tecnicas junto com a avaliacao funcional?"
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3 grid-cols-2">
@@ -342,13 +314,6 @@ export default function FunctionalAssessment() {
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   Dados clínicos
-                  <BnitoContextButton
-                    studentId={studentId || undefined}
-                    label="dados clinicos da avaliacao"
-                    context="Queixa principal, historico de lesoes, modalidade e nivel do aluno antes da analise funcional."
-                    question="Como devo usar queixa, lesoes e nivel para calibrar a interpretacao da avaliacao?"
-                    className="ml-auto"
-                  />
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3 grid-cols-2">
@@ -401,13 +366,6 @@ export default function FunctionalAssessment() {
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-base">
                     Laudo
-                    <BnitoContextButton
-                      studentId={studentId || undefined}
-                      label="laudo funcional"
-                      context="Resultado da avaliacao funcional com scores, compensacoes e recomendacoes para prescricao."
-                      question="Me ajuda a transformar este laudo em ajustes práticos de treino?"
-                      className="ml-auto"
-                    />
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">

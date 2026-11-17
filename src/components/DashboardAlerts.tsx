@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Cake, UserCheck, CalendarDays, AlertTriangle, Bell, Check, MessageCircle, UserPlus } from "lucide-react";
 import { toast } from "sonner";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { fetchCompanyProductSettings } from "@/lib/companyProductSettings";
 import { buildStudentChatMap, openStudentChat, birthdayMessage } from "@/lib/studentChat";
 import { FUNNEL_STAGE_META, normalizeSalesStage, stageNextAction } from "@/lib/salesFunnelView";
@@ -384,12 +383,6 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
         <CardHeader className="pb-3">
           <CardTitle className="text-primary text-xl flex flex-wrap items-center gap-2">
             <Bell className="h-5 w-5" />CENTRAL DE ATENÇÃO
-            <BnitoContextButton
-              label="central de atencao"
-              context={`Dashboard com ${attentionItems.length} pendencias consolidadas por prioridade operacional.`}
-              question="Qual destas pendencias eu devo resolver primeiro hoje?"
-              className="ml-auto"
-            />
           </CardTitle>
           <div className="flex flex-wrap gap-2">
             {countPills.map((pill) => (
@@ -492,12 +485,6 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
           <CardHeader className="pb-3">
             <CardTitle className="text-primary text-lg flex items-center gap-2">
               <Bell className="h-5 w-5" />AÇÕES PENDENTES
-              <BnitoContextButton
-                label="acoes pendentes"
-                context={`Dashboard com ${pendingActions.length} acoes pendentes administrativas e tecnicas.`}
-                question="Como devo priorizar estas acoes pendentes?"
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -536,12 +523,6 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
           <CardHeader className="pb-3">
             <CardTitle className="text-primary text-lg flex items-center gap-2">
               <CalendarDays className="h-5 w-5" />DEFINIR DATA DE TREINO
-              <BnitoContextButton
-                label="alunos sem data de treino"
-                context={`Existem ${awaitingTrainingDate.length} alunos aguardando definicao de data de treino.`}
-                question="Qual criterio usar para definir data de inicio de treino destes alunos?"
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -568,12 +549,6 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
           <CardHeader className="pb-3">
             <CardTitle className="text-primary text-lg flex items-center gap-2">
               <UserCheck className="h-5 w-5" />AGUARDANDO TREINADOR
-              <BnitoContextButton
-                label="alunos aguardando treinador"
-                context={`Existem ${awaitingTrainer.length} alunos aguardando treinador.`}
-                question="Como devo distribuir estes alunos entre os treinadores?"
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -652,12 +627,6 @@ export function DashboardAlerts({ trainerId, compact = false, readOnly = false, 
           <CardHeader className="pb-3">
             <CardTitle className="text-destructive text-lg flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />COBRANÇA INCOMPLETA
-              <BnitoContextButton
-                label="cobranca incompleta"
-                context={`Existem ${incompleteBilling.length} alunos com dados obrigatorios faltando para link de cobranca.`}
-                question="Quais dados devo corrigir primeiro para o link de cobranca funcionar?"
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent>

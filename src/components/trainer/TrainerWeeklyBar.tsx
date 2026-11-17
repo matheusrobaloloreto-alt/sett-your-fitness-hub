@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarDays, CheckCircle2, Circle, Dumbbell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { businessDateYmd } from "@/lib/businessDate";
 import { filterMaterializedWorkouts } from "@/lib/workoutPresence";
 
@@ -117,12 +116,6 @@ export function TrainerWeeklyBar({ studentId }: Props) {
         <CardTitle className="text-primary text-lg flex items-center gap-2">
           <CalendarDays className="h-5 w-5" />
           FREQUÊNCIA SEMANAL
-          <BnitoContextButton
-            label="frequencia semanal"
-            context={`Frequencia semanal do aluno: ${completedCount}/${totalScheduled} treinos concluidos.`}
-            question="Como devo interpretar esta frequencia semanal e ajustar a proxima semana?"
-            className="ml-auto"
-          />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -361,12 +361,28 @@ test("StudentHub and StudentDetail profile surfaces fit mobile and desktop", asy
   await page.screenshot({ path: `${artifactDir}/student-hub-360.png`, fullPage: true });
   await expectClean(page, mobileGuard, 360);
 
-  const detailGuard = await openFixture(page, "/trainer/students/student-mobile-1", 1440, 1000);
+  await page.clock.setFixedTime(new Date("2026-09-14T12:00:00Z"));
+  const detailGuard = await openFixture(page, "/trainer/students/student-mobile-1?tab=enrollments", 1440, 1000);
   await expect(page.getByRole("heading", { name: /Ana Carolina/i })).toBeVisible();
-  await page.getByRole("tab", { name: "Matrículas", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "MATRÍCULAS" })).toBeVisible();
-  await page.screenshot({ path: `${artifactDir}/student-detail-1440.png`, fullPage: true });
+  await expect(page.getByRole("tab", { name: "Treino", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Matrículas", exact: true })).toHaveCount(0);
+  const enrollmentHeading = page.getByRole("heading", { name: "MATRÍCULAS", exact: true });
+  const calendarHeading = page.getByRole("heading", { name: "CALENDÁRIO DE CICLOS", exact: true });
+  await expect(enrollmentHeading).toBeVisible();
+  await expect(calendarHeading).toBeVisible();
+  const enrollmentDesktop = await page.getByRole("region", { name: "Matrículas", exact: true }).boundingBox();
+  const calendarDesktop = await calendarHeading.locator("../..").boundingBox();
+  expect(enrollmentDesktop!.y).toBeCloseTo(calendarDesktop!.y, 0);
+  expect(enrollmentDesktop!.x).toBeLessThan(calendarDesktop!.x);
   await expectClean(page, detailGuard, 1440);
+
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const enrollmentMobile = await enrollmentHeading.boundingBox();
+    const calendarMobile = await calendarHeading.boundingBox();
+    expect(enrollmentMobile!.y).toBeLessThan(calendarMobile!.y);
+    await expectClean(page, detailGuard, width);
+  }
 });
 
 test("WorkoutBuilder and embedded PrescriptionStudio render with fixture data without writes", async ({ page }) => {
@@ -444,7 +460,12 @@ test("WorkoutBuilder keeps weekly volume clear of the assistant card and floatin
   await expect(volumeCard).toBeVisible();
   await expect(auditCard).toBeVisible();
   await expect(page.getByRole("button", { name: "Abrir conversas do WhatsApp" })).toBeVisible();
-  await expect(page.getByTestId("workout-builder-header-actions").getByRole("button", { name: "Conversas" })).toHaveCount(0);
+  const actions = page.getByTestId("workout-builder-header-actions");
+  await expect(actions.getByRole("button", { name: "Conversas" })).toHaveCount(0);
+  await expect(actions.getByRole("button", { name: "Volume", exact: true })).toHaveCount(0);
+  const buttonPositions = await actions.getByRole("button").evaluateAll(buttons => buttons.map(button => button.getBoundingClientRect().top));
+  expect(buttonPositions).toHaveLength(4);
+  expect(new Set(buttonPositions).size).toBe(1);
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
 
   const [volumeBox, auditBox] = await Promise.all([volumeCard.boundingBox(), auditCard.boundingBox()]);
@@ -461,7 +482,7 @@ test("WorkoutBuilder imports a library template, relinks visible exact-name exer
   const guard = await openFixture(page, "/trainer/workout/cycle-mobile-1", 390, 900);
   await expect(page.getByRole("heading", { name: "PRESCRIÇÃO DE TREINO" })).toBeVisible();
   const libraryDialog = page.getByRole("dialog", { name: /Usar treino da biblioteca/ });
-  await page.getByRole("button", { name: /Biblioteca de treinos/ }).click();
+  await page.getByRole("button", { name: /Biblioteca de Treinos/i }).click();
   await expect(libraryDialog).toBeVisible();
   await page.getByRole("button", { name: /Template QA Nome Visível/ }).click();
   await page.getByRole("button", { name: "Usar este treino" }).click();
@@ -562,3 +583,26 @@ for (const width of [390, 1280]) {
     await expectClean(page, guard, width);
   });
 }
+
+test("Linho student profile keeps old enrollment links and assessment controls", async ({ page }) => {
+  const guard = await openFixture(page, "/admin/students/student-mobile-1?tab=enrollments", 390, 844, "light", "admin");
+  const tabs = page.getByRole("tablist", { name: "Seções do aluno" });
+  await expect(tabs.getByRole("tab", { name: "Treino", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.getByRole("tab", { name: "Matrículas" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Matrículas", exact: true })).toBeVisible();
+  await expect(page.getByText(/calendário de ciclos/i).first()).toBeVisible();
+
+  await tabs.getByRole("tab", { name: "Visão geral" }).click();
+  await expect(page.getByText("Linha do tempo", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Contato semanal", { exact: true })).toBeVisible();
+  await tabs.getByRole("tab", { name: "Avaliação e anamnese" }).click();
+  const map = page.getByRole("heading", { name: "Mapa de limitações" });
+  await expect(map).toBeVisible();
+  await expect(map.locator("..").getByRole("button", { name: /avaliação funcional|realizar avaliação/i })).toBeVisible();
+  await expect(page.getByText(/Fotos de progresso/i)).toHaveCount(0);
+  await tabs.getByRole("tab", { name: "Cadastro", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /^Dados pessoais$/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Acesso do app$/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Financeiro$/i })).toBeVisible();
+  await expectClean(page, guard, 390);
+});

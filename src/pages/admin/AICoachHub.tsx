@@ -18,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useAssistantName } from "@/hooks/useAssistantName";
 import { useToast } from "@/hooks/use-toast";
 
@@ -299,11 +298,6 @@ export default function AICoachHub() {
           </div>
           <div className="flex items-center gap-2">
             <h1 className="font-display text-3xl text-navy">Central IA de Performance</h1>
-            <BnitoContextButton
-              label="Central IA de Performance"
-              context="Central IA reorganizada em pilares: BNITO, musculacao, corrida, nutricao e avaliacao funcional como casa de composicao e tecnica."
-              question="Como eu escolho entre BNITO, musculacao, corrida, nutricao e avaliacao funcional neste caso?"
-            />
           </div>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
             {assistantName} como coracao do app; musculacao absorve adaptacao de treino; avaliacao funcional concentra composicao, tecnica, fotos e video.
@@ -320,12 +314,6 @@ export default function AICoachHub() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 Modos
-                <BnitoContextButton
-                  label="modos da Central IA"
-                  context="Lista enxuta de modos: BNITO, musculacao, corrida e nutricao. Treino adaptativo, triagem, secretaria, composicao e tecnica foram incorporados aos fluxos corretos."
-                  question="Qual modo devo usar agora que a Central IA foi consolidada?"
-                  className="ml-auto"
-                />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -362,12 +350,6 @@ export default function AICoachHub() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 Fluxos incorporados
-                <BnitoContextButton
-                  label="fluxos incorporados"
-                  context="Treino adaptativo, triagem de lesao, secretaria, composicao corporal e analise tecnica foram realocados na arquitetura do BNapp."
-                  question="Me relembra onde cada fluxo deve ser usado agora?"
-                  className="ml-auto"
-                />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -399,12 +381,6 @@ export default function AICoachHub() {
             <CardTitle className="flex items-center gap-2 text-base">
               <selectedMode.icon className="h-4 w-4 text-primary" />
               {swap(selectedMode.title)}
-              <BnitoContextButton
-                label={`modo ${selectedMode.title}`}
-                context={`Modo selecionado na Central IA: ${selectedMode.title}. Subtitulo: ${selectedMode.subtitle}`}
-                question={`Me ajuda a preencher o modo ${selectedMode.title} com contexto tecnico suficiente?`}
-                className="ml-auto"
-              />
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -488,12 +464,6 @@ export default function AICoachHub() {
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 Resultado
-                <BnitoContextButton
-                  label="resultado da IA"
-                  context="Area de resultado gerado pela Central IA; o professor deve revisar antes de aplicar."
-                  question="Como devo revisar criticamente este resultado antes de aplicar no treino?"
-                  className="ml-auto"
-                />
               </CardTitle>
               <Button variant="outline" size="sm" onClick={copyResult} disabled={!resultText} className="gap-2">
                 <Copy className="h-4 w-4" />

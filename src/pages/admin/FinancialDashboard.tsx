@@ -14,7 +14,6 @@ import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useMaster } from "@/contexts/MasterContext";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { useNavigate } from "react-router-dom";
 import { isBrazilianCountry } from "@/lib/fiscalRegistration";
 import {
@@ -771,11 +770,6 @@ export default function FinancialDashboard() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-4xl text-primary">FINANCEIRO</h1>
-              <BnitoContextButton
-                label="dashboard financeiro"
-                context="Dashboard financeiro com faturamento, caixa, pendencias, inadimplencia, conversao, metodo de pagamento e historico."
-                question="Como devo interpretar o financeiro e priorizar pendencias?"
-              />
             </div>
             <p className="text-muted-foreground font-sans">Gestão financeira da consultoria</p>
           </div>
@@ -943,12 +937,6 @@ export default function FinancialDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-primary text-xl">
                 FATURAMENTO MENSAL
-                <BnitoContextButton
-                  label="faturamento mensal"
-                  context="Grafico de faturamento por mes de criacao da venda."
-                  question="O que devo observar neste faturamento mensal?"
-                  className="ml-auto"
-                />
               </CardTitle>
               <p className="text-xs text-muted-foreground font-sans">Valor total das vendas no mês de criação</p>
             </CardHeader>
@@ -961,12 +949,6 @@ export default function FinancialDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-primary text-xl">
                 CAIXA MENSAL + PREVISÃO
-                <BnitoContextButton
-                  label="caixa mensal e previsao"
-                  context="Valores por referência mensal; origem da data do provedor desconhecida. Previsão não comprova recebimento ou liquidação."
-                  question="Como devo ler caixa recebido versus previsao futura?"
-                  className="ml-auto"
-                />
               </CardTitle>
               <p className="text-xs text-muted-foreground font-sans">Valores por data informada no snapshot (origem desconhecida: crédito ou pagamento não discriminados) + previsão. Não comprova liquidação bancária.</p>
             </CardHeader>
@@ -979,12 +961,6 @@ export default function FinancialDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-primary text-xl">
                 MÉTODO DE PAGAMENTO (R$)
-                <BnitoContextButton
-                  label="metodos de pagamento"
-                  context="Distribuicao de receita por metodo de pagamento."
-                  question="O que a distribuicao por metodo de pagamento sugere operacionalmente?"
-                  className="ml-auto"
-                />
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1013,12 +989,6 @@ export default function FinancialDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-primary text-xl">
                 RECEITA POR PLANO
-                <BnitoContextButton
-                  label="receita por plano"
-                  context="Receita agrupada por plano vendido."
-                  question="Como devo interpretar a receita por plano para ajustar oferta e operacao?"
-                  className="ml-auto"
-                />
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1044,12 +1014,6 @@ export default function FinancialDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-primary text-xl">
               CAIXA — DETALHE POR ALUNO
-              <BnitoContextButton
-                label="caixa por aluno"
-                context="Detalhamento mensal de caixa por aluno e previsao de parcelas futuras."
-                question="Quais alunos devo revisar pelo impacto no caixa?"
-                className="ml-auto"
-              />
             </CardTitle>
             <p className="text-xs text-muted-foreground font-sans">Valores por referência mensal: registro local, data do provedor ou previsão, conforme o detalhe. Previsão não comprova recebimento.</p>
           </CardHeader>
@@ -1108,12 +1072,6 @@ export default function FinancialDashboard() {
               <div>
                 <CardTitle className="flex items-center gap-2 text-primary text-xl">
                   HISTÓRICO DE PAGAMENTOS
-                  <BnitoContextButton
-                    label="historico de pagamentos"
-                    context="Tabela filtravel de pagamentos, status, datas e metodos."
-                    question="Como devo auditar este historico de pagamentos?"
-                    className="ml-auto"
-                  />
                 </CardTitle>
                 <p className="text-xs text-muted-foreground font-sans mt-1">
                   {hasUnavailableCreditCards

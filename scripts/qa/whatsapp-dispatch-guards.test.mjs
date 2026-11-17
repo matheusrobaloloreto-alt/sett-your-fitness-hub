@@ -6,6 +6,7 @@ import { extractWhatsAppDeliveryUpdates, shouldApplyWhatsAppDeliveryStatus } fro
 // Run with SETT_QA_PGLITE_MODULE pointing to an installed PGlite ESM entry.
 const { PGlite } = await import(process.env.SETT_QA_PGLITE_MODULE || "@electric-sql/pglite");
 const cadenceRollbackSql = readFileSync(new URL("../../supabase/tests/contact_cadence_rollback.sql", import.meta.url), "utf8");
+const splitCadenceSql = readFileSync(new URL("../../supabase/tests/contact_cadence_split_clocks_rollback.sql", import.meta.url), "utf8");
 const migration = (name) => readFileSync(new URL(`../../supabase/migrations/${name}.sql`, import.meta.url), "utf8");
 
 const company = "00000000-0000-0000-0000-000000000001";
@@ -138,6 +139,8 @@ test("synthetic weekly dispatch and cadence migrations on isolated PostgreSQL", 
   await db.exec(cadenceMigration.replace(/commit;\s*$/i, "rollback;"));
   assert.equal(await scalar("select to_regprocedure('operational_contact_cadence_status(uuid, uuid[])') result"), null);
   await db.exec(cadenceMigration);
+  await db.exec(migration("20261110120000_index_contact_cadence_message_lookup"));
+  await db.exec(migration("20261110120200_batch_authorized_contact_cadence_timestamps"));
   await db.exec(`
     select set_config('sett.test_actor', '${actor}', false);
     insert into auth.users values ('${actor}'), ('${trainerActor}'), ('${studentActor}');
@@ -359,5 +362,24 @@ test("synthetic weekly dispatch and cadence migrations on isolated PostgreSQL", 
         ($1,$2,now(),true,'sent','text','panel_manual',$3,'',null,null),
         ($1,$2,now(),true,'accepted','text','provider_live',null,'provider-only-ack','SENT',now())`, [chat, company, actor]);
     await assertLast(at);
+  });
+
+  await t.test("split cadence migration keeps tenant gates and separates verified contact from human replies", async () => {
+    await db.exec(`alter table public.whatsapp_messages
+      add column id uuid not null default gen_random_uuid() unique,
+      add column quoted_message_id uuid references public.whatsapp_messages(id),
+      add column quoted_message_external_id text`);
+    const split = migration("20261117064937_split_contact_cadence_clocks");
+    const signature = "commercial_private.contact_cadence_message_times(uuid, uuid[])";
+    const acl = () => scalar("select proacl::text result from pg_proc where oid = $1::regprocedure", [signature]);
+    const before = await acl();
+    await db.exec(split);
+    assert.equal(await acl(), before);
+    try {
+      await db.exec(splitCadenceSql);
+    } catch (error) {
+      await db.exec("rollback");
+      throw error;
+    }
   });
 });

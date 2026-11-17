@@ -167,7 +167,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     const originalTemplates = clone(templates);
     mountBuilder();
     await waitForDraft();
-    fireEvent.click(screen.getByRole("button", { name: /Usar treino da biblioteca/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Biblioteca de Treinos" }));
     const dialog = await screen.findByRole("dialog", { name: "Usar treino da biblioteca" });
     await within(dialog).findByRole("heading", { name: "Plano extra QA" });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Adicionar$/ }));
@@ -195,7 +195,7 @@ describe("mounted WorkoutBuilder recovery integration", () => {
     prepareTemplate();
     mountBuilder();
     await waitForDraft();
-    fireEvent.click(screen.getByRole("button", { name: /Usar treino da biblioteca/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Biblioteca de Treinos" }));
     const dialog = await screen.findByRole("dialog", { name: "Usar treino da biblioteca" });
     await within(dialog).findByRole("heading", { name: "Plano extra QA" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Usar este treino" }));

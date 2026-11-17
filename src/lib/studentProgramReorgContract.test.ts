@@ -60,7 +60,7 @@ describe("student profile program reorganization contract", () => {
     expect(studentDetail).not.toContain("@/pages/admin/UnifiedPrescriber");
     expect(studentDetail).toContain("ManualPrescriptionPanel");
     expect(studentDetail).toContain("openManualPrescriptionBuilder");
-    expect(studentDetail).toContain("workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id, returnTab: activeTab })");
+    expect(studentDetail).toContain("workoutBuilderUrl({ role, studentId: id, cycleId: targetCycle.id, returnTab })");
     expect(studentDetail).toContain("resolveManualPrescriptionTargetCycle");
     expect(studentDetail).toContain("embeddedStudentId={id}");
     expect(studentDetail).toContain("resolveStudentProgramHandoff");
@@ -108,9 +108,9 @@ describe("student profile program reorganization contract", () => {
     expect(tab("analytics")).toContain("PROVAS E METAS");
     expect(tab("evaluations")).toContain('title="ANAMNESE"');
     expect(tab("evaluations")).toContain("<StudentBodyMap");
-    expect(tab("evaluations")).toContain("<ProgressPhotosPanel");
-    expect(tab("registration")).toContain('title="FINANCEIRO"');
-    expect(tab("enrollments")).toContain("MATRÍCULAS");
+    expect(tab("evaluations")).toContain("<AssessmentMaterialReceipt");
+    expect(tab("registration")).toContain('FINANCEIRO</CardTitle>');
+    expect(tab("program")).toContain("renderEnrollmentSection()");
   });
 
   it("summarizes volume alerts behind an explicit see-more control", () => {

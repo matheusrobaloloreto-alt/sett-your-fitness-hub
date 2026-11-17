@@ -9,7 +9,6 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { Loader2, Video, Camera, Plus, X, Save, Sparkles, RefreshCw, SkipBack, SkipForward, Eye, Maximize2 } from "lucide-react";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/lib/studioUi";
 import { toast } from "sonner";
 import { generateAssessmentPDF } from "@/lib/generatePDFs";
@@ -920,12 +919,6 @@ export default function VideoAssessment({ studentId, companyId, assessmentContex
         <CardHeader className="pb-2">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             Avaliação por vídeo
-            <BnitoContextButton
-              label="avaliacao por video"
-              context="Analise tecnica por video/frames no Studio: postura, overhead squat, compensacoes e cues para prescricao."
-              question="O que devo observar nos frames antes de transformar essa avaliacao em treino?"
-              className="ml-auto"
-            />
           </CardTitle>
         </CardHeader>
         <CardContent>

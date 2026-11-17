@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { ClipboardCheck, Copy, Check, Link2, Loader2, MessageCircle, Pencil, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
-import { BnitoContextButton } from "@/components/BnitoFloatingAssistant";
 import FormFieldEditor from "@/components/FormFieldEditor";
 import FormDefinitionManager from '@/components/admin/FormDefinitionManager';
 import { useNavigate } from "react-router-dom";
@@ -208,12 +207,6 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               <Pencil className="mr-2 h-4 w-4" /> Editar anamnese
             </Button>
-            <BnitoContextButton
-              label="anamnese do estúdio"
-              context="Anamnese estruturada única (dados, objetivo, modalidades, rotina, saúde, PAR-Q, nutrição condicional) que alimenta todas as prescrições."
-              question="Quais respostas da anamnese mais impactam a qualidade e a segurança da prescrição?"
-              text="BNITO da anamnese"
-            />
           </div>
         </div>
       )}
@@ -222,12 +215,6 @@ export default function AnamnesisManager({ embedded = false }: AnamnesisManagerP
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
             <Pencil className="mr-2 h-4 w-4" /> Editar anamnese
           </Button>
-          <BnitoContextButton
-            label="anamnese do estúdio"
-            context="Anamnese estruturada única (dados, objetivo, modalidades, rotina, saúde, PAR-Q, nutrição condicional) que alimenta todas as prescrições."
-            question="Quais respostas da anamnese mais impactam a qualidade e a segurança da prescrição?"
-            text="BNITO"
-          />
         </div>
       )}
 

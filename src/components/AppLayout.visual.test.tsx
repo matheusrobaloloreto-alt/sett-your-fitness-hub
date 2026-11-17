@@ -15,17 +15,15 @@ const state = vi.hoisted(() => ({
   auth: { role: "admin", companyId: "tenant-a", user: { id: "qa-user" } },
   master: { isViewingCompany: false, viewingCompany: null as null | { id: string }, exitCompanyView: vi.fn() },
   theme: { settings: null as null | Record<string, unknown>, isLoading: false, themeMode: "light" },
-  config: vi.fn((..._args: unknown[]) => ({ config: { assistant_name: "Setty" } })),
   presence: vi.fn(),
   rpc: vi.fn(),
 }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => state.auth }));
 vi.mock("@/contexts/MasterContext", () => ({ useMaster: () => state.master }));
 vi.mock("@/contexts/ThemeContext", () => ({ useTheme: () => state.theme }));
-vi.mock("@/lib/companyAiConfig", () => ({ useCompanyAiConfig: (...args: unknown[]) => state.config(...args) }));
 vi.mock("@/hooks/useStaffPresence", () => ({ useStaffPresence: (...args: unknown[]) => state.presence(...args) }));
 vi.mock("@/components/AthleticClubStar", () => ({ AthleticClubStar: () => null, AthleticClubProvider: ({ children }: { children: ReactNode }) => children }));
-vi.mock("@/components/BnitoFloatingAssistant", () => ({ BnitoContextButton: () => <button>Setty</button>, BnitoAssistantProvider: ({ children }: { children: ReactNode }) => children }));
+vi.mock("@/components/BnitoFloatingAssistant", () => ({ BnitoContextButton: ({ text }: { text?: string }) => <button aria-label="Perguntar ao Setty">{text}</button>, BnitoAssistantProvider: ({ children }: { children: ReactNode }) => children }));
 vi.mock("@/components/WhatsAppChatPanel", () => ({ WhatsAppChatPanelProvider: ({ children, mobileDock }: { children: ReactNode; mobileDock: boolean }) => <div data-testid="chat-provider" data-mobile-dock={String(mobileDock)}>{children}</div> }));
 vi.mock("@/components/ui/sidebar", () => ({ SidebarTrigger: (props: Record<string, unknown>) => <button {...props} />, SidebarProvider: ({ children, ...props }: { children: ReactNode }) => <div data-testid="sidebar-provider" {...props}>{children}</div> }));
 vi.mock("@/components/AppSidebar", () => ({ AppSidebar: ({ linen }: { linen: boolean }) => <aside data-testid="sidebar" data-linen={String(linen)} /> }));
@@ -73,7 +71,7 @@ describe("AppLayout Linho role gate across the real panel route inventory (DOM c
     expect(screen.getByTestId("chat-provider")).toHaveAttribute("data-mobile-dock", "true");
     expect(screen.getByTestId("transition")).toHaveAttribute("data-spring", "true");
     await waitFor(() => expect(screen.getByTestId("header")).toHaveAttribute("data-linen", "true"));
-    expect(state.config).toHaveBeenCalledWith(role === "master" ? null : "tenant-a");
+    expect(screen.getByTestId("header")).toHaveAttribute("data-company", role === "master" ? "global" : "tenant-a");
   });
   it.each([320, 390, 1440])("keeps the role gate at width %i (layout requires CUA)", async width => {
     vi.stubGlobal("innerWidth", width);
@@ -90,7 +88,6 @@ describe("AppLayout Linho role gate across the real panel route inventory (DOM c
     const { container } = mount("/admin/plans");
     expect(shell(container)).toHaveClass("sett-linen", "sett-effects");
     await waitFor(() => expect(screen.getByTestId("header")).toHaveAttribute("data-company", "tenant-b"));
-    expect(state.config).toHaveBeenCalledWith("tenant-b");
   });
   it("does not introduce Linho or fallback colors for a student", async () => {
     state.auth.role = "student";
@@ -160,14 +157,14 @@ describe("actual PanelHeader trigger regression", () => {
   it.each(["admin", "coordinator", "trainer", "master"])("%s Linho omits the duplicated header trigger", async role => {
     state.auth.role = role;
     const { default: RealHeader } = await vi.importActual<typeof import("./PanelHeader")>("./PanelHeader");
-    render(<MemoryRouter><RealHeader effectiveCompanyId={role === "master" ? null : "tenant-a"} linen assistantName="Setty" isWorkoutBuilder={false} /></MemoryRouter>);
+    render(<MemoryRouter><RealHeader effectiveCompanyId={role === "master" ? null : "tenant-a"} linen isWorkoutBuilder={false} /></MemoryRouter>);
     expect(screen.queryByRole("button", { name: "Abrir ou recolher menu lateral" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Setty" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Perguntar ao Setty" })).toBeEmptyDOMElement();
     if (role !== "master") expect(screen.getByRole("textbox", { name: "Buscar aluno" })).toBeVisible();
   });
   it("retains the trigger in a non-Linho header", async () => {
     const { default: RealHeader } = await vi.importActual<typeof import("./PanelHeader")>("./PanelHeader");
-    render(<MemoryRouter><RealHeader effectiveCompanyId={null} linen={false} assistantName="Setty" isWorkoutBuilder={false} /></MemoryRouter>);
+    render(<MemoryRouter><RealHeader effectiveCompanyId={null} linen={false} isWorkoutBuilder={false} /></MemoryRouter>);
     expect(screen.getByRole("button", { name: "Abrir ou recolher menu lateral" })).toBeVisible();
   });
 });

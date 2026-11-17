@@ -8,8 +8,9 @@ import ProductSettings from './ProductSettings';
 const mocks = vi.hoisted(() => ({
   auth: { role: 'admin', companyId: 'company-a' },
   master: { isViewingCompany: false, viewingCompany: null as { id: string; name: string } | null },
-  fetch: vi.fn(), save: vi.fn(),
+  fetch: vi.fn(), save: vi.fn(), from: vi.fn(),
 }));
+vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: mocks.from } }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => mocks.auth }));
 vi.mock('@/contexts/MasterContext', () => ({ useMaster: () => mocks.master }));
 vi.mock('@/lib/companyProductSettings', async (original) => ({
@@ -36,10 +37,81 @@ vi.mock('@/components/admin/FormDefinitionManager', async () => {
 describe('company product settings screen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(),
+      overrideTypes: vi.fn().mockResolvedValue({ data: [], error: null }),
+    });
     mocks.auth = { role: 'admin', companyId: 'company-a' };
     mocks.master = { isViewingCompany: false, viewingCompany: null };
     mocks.fetch.mockResolvedValue({ settings: structuredClone(DEFAULT_COMPANY_PRODUCT_SETTINGS), version: 7 });
     mocks.save.mockImplementation(async (_id, settings) => ({ settings, version: 8 }));
+  });
+
+  it('edits both weekly conditions in Contatos; confirms one tenant-scoped update and reloads it', async () => {
+    const flowId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    let returningWrite = false;
+    let persisted = { id: flowId, name: 'Fluxo semanal', is_active: true, weekly_contact_interval_hours: 0, weekly_contact_inactivity_hours: 48 };
+    const query = {
+      select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), filter: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(),
+      update: vi.fn().mockImplementation(next => {
+        returningWrite = true;
+        persisted = { ...persisted, ...next };
+        return query;
+      }),
+      overrideTypes: vi.fn().mockImplementation(async () => {
+        const data = returningWrite ? [persisted]
+          : [{ ...persisted, id: 'other-flow', name: 'Outro fluxo', weekly_contact_inactivity_hours: 0 }, persisted];
+        returningWrite = false;
+        return { data, error: null };
+      }),
+    };
+    mocks.from.mockReturnValue(query);
+    await act(async () => {
+      rtlRender(<ProductSettings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={[`/admin/settings?tab=contact_policy&flowId=${flowId}`]}>{children}</MemoryRouter> });
+    });
+    const interval = screen.getByRole('checkbox', { name: 'Exigir intervalo adicional entre contatos semanais' });
+    const inactivity = screen.getByRole('checkbox', { name: 'Exigir inatividade no WhatsApp' });
+    expect(screen.getByLabelText('Fluxo de contato semanal')).toHaveValue(flowId);
+    expect(interval).not.toBeChecked();
+    expect(inactivity).toBeChecked();
+    expect(screen.getByLabelText('Tempo sem conversa no WhatsApp (h)')).toHaveValue(48);
+    fireEvent.click(interval);
+    fireEvent.change(screen.getByLabelText('Intervalo entre contatos semanais (h)'), { target: { value: '192' } });
+    fireEvent.click(inactivity);
+    expect(screen.getByRole('button', { name: 'Salvar' })).toBeDisabled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Salvar condições do fluxo' })); });
+    await screen.findByText('Condições do fluxo salvas.');
+    expect(query.update).toHaveBeenCalledExactlyOnceWith({ weekly_contact_interval_hours: 192, weekly_contact_inactivity_hours: 0 });
+    for (const [key, value] of [['company_id', 'company-a'], ['id', flowId], ['trigger_type', 'weekly_contact'], ['weekly_contact_inactivity_hours', 48]]) {
+      expect(query.eq).toHaveBeenCalledWith(key, value);
+    }
+    expect(query.filter).toHaveBeenCalledExactlyOnceWith('weekly_contact_interval_hours', 'eq', 0);
+    expect(mocks.save).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Recarregar condições do fluxo' })); });
+    expect(await screen.findByLabelText('Intervalo entre contatos semanais (h)')).toHaveValue(192);
+    expect(screen.getByRole('checkbox', { name: 'Exigir inatividade no WhatsApp' })).not.toBeChecked();
+  });
+
+  it('keeps a weekly draft after a zero-row write and requires reload before retry', async () => {
+    const row = { id: 'weekly-a', name: 'Fluxo semanal', is_active: true, weekly_contact_interval_hours: 0, weekly_contact_inactivity_hours: 0 };
+    const query = {
+      select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), filter: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), update: vi.fn().mockReturnThis(),
+      overrideTypes: vi.fn().mockResolvedValueOnce({ data: [row], error: null }).mockResolvedValueOnce({ data: [], error: null })
+        .mockResolvedValueOnce({ data: [{ ...row, weekly_contact_inactivity_hours: 72 }], error: null }),
+    };
+    mocks.from.mockReturnValue(query);
+    await act(async () => {
+      rtlRender(<ProductSettings />, { wrapper: ({ children }) => <MemoryRouter initialEntries={['/admin/settings?tab=contact_policy&flowId=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']}>{children}</MemoryRouter> });
+    });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Exigir inatividade no WhatsApp' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Salvar condições do fluxo' })); });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Seu rascunho foi mantido');
+    expect(screen.getByLabelText('Tempo sem conversa no WhatsApp (h)')).toHaveValue(24);
+    expect(screen.getByRole('button', { name: 'Salvar condições do fluxo' })).toBeDisabled();
+    expect(screen.queryByText('Condições do fluxo salvas.')).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Descartar rascunho e recarregar condições' })); });
+    expect(await screen.findByLabelText('Tempo sem conversa no WhatsApp (h)')).toHaveValue(72);
+    expect(query.update).toHaveBeenCalledOnce();
   });
 
   it('offers an explained expiry policy, persists it by company/version and reloads it', async () => {

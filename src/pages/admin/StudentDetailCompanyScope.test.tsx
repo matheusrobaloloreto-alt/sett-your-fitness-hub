@@ -54,18 +54,17 @@ vi.mock("@/components/ui/select", async () => {
   };
 });
 vi.mock("@/lib/preRegistrationData", () => ({ loadStudentPreRegistration: async () => null, updateStudentPreRegistration: vi.fn() }));
-vi.mock("@/components/BnitoFloatingAssistant", () => ({ BnitoContextButton: () => null }));
 vi.mock("@/components/AthleticClubStar", () => ({ AthleticClubStar: () => null }));
 vi.mock("@/components/admin/PlanVersionsCard", () => ({ PlanVersionsCard: () => null }));
+vi.mock("@/components/body/BodyMap", () => ({ BodyMap: () => null }));
+vi.mock("@/pages/admin/PrescriptionStudio", () => ({ default: () => null }));
 vi.mock("@/components/admin/AssessmentCompareCard", () => ({ AssessmentCompareCard: () => null }));
 vi.mock("@/components/admin/PreRegistrationDetails", () => ({ PreRegistrationDetails: () => null }));
 vi.mock("@/components/admin/ManualPrescriptionPanel", () => ({ ManualPrescriptionPanel: () => null }));
 vi.mock("@/components/admin/StudentGoalsManager", () => ({ StudentGoalsManager: () => null }));
-vi.mock("@/components/admin/StudentTimeline", () => ({ StudentTimeline: () => null }));
 vi.mock("@/components/admin/StudentFilesPanel", () => ({ StudentFilesPanel: () => null }));
 vi.mock("@/components/admin/WeeklyContactToggle", () => ({ WeeklyContactToggle: () => null }));
 vi.mock("@/components/admin/IntercycleAnamnesisControls", () => ({ IntercycleAnamnesisControls: () => null, IntercycleAnamnesisTimeline: () => null }));
-vi.mock("@/components/ProgressPhotosPanel", () => ({ ProgressPhotosPanel: () => null }));
 
 vi.mock('@/components/admin/StudentWorkoutFeedbackCard', () => ({ StudentWorkoutFeedbackCard: () => null }));
 vi.mock('@/components/trainer/WorkoutAnalysis', () => ({ WorkoutAnalysis: () => null }));
@@ -150,7 +149,10 @@ beforeEach(() => {
       update: (value: Record<string, unknown>) => { mocks.writes.push(table); patch = value; return query; },
       eq: (key: string, value: unknown) => { filters[key] = value; return query; },
       maybeSingle: async () => ({
-        data: table === "training_cycles" && patch ? updateCycles()[0] ?? null
+        data: table === "assessment_material_receipts" ? {
+          received_on: "2026-10-28", material_reference: "Vídeo de teste",
+          assessment_due_on: "2026-10-29", first_prescription_due_on: "2026-10-30",
+        } : table === "training_cycles" && patch ? updateCycles()[0] ?? null
           : table === "students" && filters.company_id === mocks.studentCompany ? mocks.latestStudent : null,
         error: null,
       }),
@@ -380,7 +382,7 @@ it('shows an explicit coverage read error instead of claiming an empty schedule'
 it('opening access conversation preflights identity and never generates credentials on a blocked read', async () => {
  render(<StudentDetail />);
  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Cadastro' }), { button: 0, ctrlKey: false });
- fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
+ expect(await screen.findByRole('heading', { name: 'ACESSO DO APP' })).toBeVisible();
  fireEvent.click(await screen.findByRole('button', { name: 'Abrir conversa' }));
  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('whatsapp-manager', expect.objectContaining({ body: expect.objectContaining({ action: 'preflight-student-login' }) })));
  expect(mocks.invoke.mock.calls.some(([name]) => name === 'student-login-credentials')).toBe(false);
@@ -391,7 +393,7 @@ it('shows legacy contact ambiguity explicitly without selecting a hidden number'
  mocks.studentPhone = '48988880002';
  render(<StudentDetail />);
  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Cadastro' }), { button: 0, ctrlKey: false });
- fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
+ expect(await screen.findByRole('heading', { name: 'ACESSO DO APP' })).toBeVisible();
  expect(await screen.findByText(/Contatos legados divergentes/)).toBeInTheDocument();
  expect(mocks.invoke).not.toHaveBeenCalled();
 });
@@ -399,7 +401,7 @@ it('shows legacy contact ambiguity explicitly without selecting a hidden number'
 
 async function openAccessPanel() {
  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Cadastro' }), { button: 0, ctrlKey: false });
- fireEvent.click(await screen.findByRole('button', { name: /ACESSO DO APP/ }));
+ expect(await screen.findByRole('heading', { name: 'ACESSO DO APP' })).toBeVisible();
 }
 const accessAck = () => ({ ready: true, companyId: 'company-a', studentId: 'student-a', chatId: null,
  remoteJid: '5548999990001@s.whatsapp.net', preflightToken: 'synthetic-preflight', stateFingerprint: 'snapshot', expiresAt: new Date(Date.now() + 120000).toISOString() });
@@ -603,6 +605,26 @@ it('shows a persisted full thirteen-digit BR contact correctly in the header and
  expect(within(dialog).queryByRole('checkbox', { name: /Conferi a identidade/ })).not.toBeInTheDocument();
 });
 
+it("opens the full enrollment section inside Treino from a legacy URL", async () => {
+ const view = render(<StudentDetail />);
+ const enrollments = within(await screen.findByRole("region", { name: "Matrículas" }));
+ expect(enrollments.getByRole("button", { name: "Nova Matrícula" })).toBeInTheDocument();
+ expect(enrollments.getByRole("combobox", { name: "Professor da matrícula Historic Completed" })).toBeDisabled();
+ expect(screen.getByRole("tab", { name: "Treino" })).toHaveAttribute("aria-selected", "true");
+ expect(screen.queryByRole("tab", { name: "Matrículas" })).not.toBeInTheDocument();
+ expect(screen.getByText("CALENDÁRIO DE CICLOS")).toBeVisible();
+ mocks.search = "?tab=registration&draft=keep";
+ view.rerender(<StudentDetail />);
+ for (const name of ["DADOS PESSOAIS", "ACESSO DO APP", "FINANCEIRO"]) {
+   expect(await screen.findByRole("heading", { name })).toBeVisible();
+   expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+ }
+ mocks.search = "?tab=enrollments&draft=keep";
+ view.rerender(<StudentDetail />);
+ expect(await screen.findByRole("region", { name: "Matrículas" })).toBeVisible();
+ expect(mocks.writes).toEqual([]);
+});
+
 it('persists tab navigation in the URL while preserving other parameters', async () => {
  render(<StudentDetail />);
  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação e anamnese' }), { button: 0, ctrlKey: false });
@@ -623,10 +645,20 @@ it('labels functional records separately from manual evaluations without clinica
  mocks.functional = [{ id: 'functional-1', assessment_date: '2026-10-29', created_at: '2026-10-29', status: 'completed' }];
  render(<StudentDetail />);
  fireEvent.mouseDown(await screen.findByRole('tab', { name: 'Avaliação e anamnese' }), { button: 0, ctrlKey: false });
+ const map = await screen.findByRole("heading", { name: "Mapa de limitações" }, { timeout: 5000 });
+ const launchAssessment = within(map.parentElement!).getByRole("button", { name: "Abrir avaliação funcional" });
+ const history = await screen.findByRole("button", { name: /Entrega e histórico da avaliação.*1 registro/ });
+ expect(history).toHaveAttribute("aria-expanded", "false");
+ fireEvent.click(history);
+ expect(await screen.findByText("Referência do material: Vídeo de teste")).toBeInTheDocument();
  expect(await screen.findByText(/Avaliação funcional · 29\/10\/2026/)).toBeInTheDocument();
  expect(screen.getByText(/Registros manuais/)).toBeInTheDocument();
  expect(screen.getByText(/arquivos não representam achados clínicos estruturados/)).toBeInTheDocument();
  expect(screen.queryByText(/student_evaluations|functional_assessments/)).not.toBeInTheDocument();
+ fireEvent.click(launchAssessment);
+ expect(mocks.navigate).toHaveBeenCalledWith(expect.objectContaining({
+   search: expect.stringMatching(/tab=integrada.*step=avaliacao/),
+ }), expect.objectContaining({ replace: false }));
  expect(mocks.writes).toEqual([]);
 });
 

@@ -156,8 +156,10 @@ describe("functional dashboard queues", () => {
     callback({ new: { ...message, status: "failed", failed_at: "2026-11-10T10:01:00Z" } });
     await screen.findByText("Contato");
     expect(range).toHaveBeenCalledTimes(3);
-    rendered.rerender(view(false));
+    callback({ new: { ...message, sender_id: null, origin: "automation", status: "delivered" } });
     await waitFor(() => expect(range).toHaveBeenCalledTimes(4));
+    rendered.rerender(view(false));
+    await waitFor(() => expect(range).toHaveBeenCalledTimes(5));
   });
 
   it("keeps a generated cardio plan in the queue until its package is published", () => {
