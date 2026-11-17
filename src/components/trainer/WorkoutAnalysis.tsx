@@ -353,7 +353,15 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
                   <p className="font-medium text-foreground">{mg.name}</p>
                   <p className="text-muted-foreground">
                     {Object.prototype.hasOwnProperty.call(prescription.volume, mg.name) && <span>{mg.prescribedSets.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} séries prescritas/sem · prescrição atual<br /></span>}
-                    {mg.executedSets > 0 || prescription.compatible ? <span>{(mg.executedSets / coveredWeeks).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} séries realizadas/sem · snapshot da sessão</span> : <span>Distribuição executada indisponível para este grupo.</span>}
+                    {mg.executedSets > 0 || prescription.compatible ? (
+                      <>
+                        <span className="block">
+                          {mg.executedSets.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}{" "}
+                          {mg.executedSets === 1 ? "série realizada no período" : "séries realizadas no período"}
+                        </span>
+                        <span>{(mg.executedSets / coveredWeeks).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} séries realizadas/sem · snapshot da sessão</span>
+                      </>
+                    ) : <span>Distribuição executada indisponível para este grupo.</span>}
                   </p>
                 </div>
               ))}

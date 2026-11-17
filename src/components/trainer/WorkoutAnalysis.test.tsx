@@ -33,6 +33,7 @@ it('reads the executed muscle snapshot without consulting the current exercise a
  mock.rows = [{ status: 'completed', duration_seconds: 60, total_volume: 250, exercises_summary: [{ name: 'Historical exercise', muscleGroup: 'Quadríceps', sets: [{ weight: 0, reps: 10 }] }] }] as any;
  render(<WorkoutAnalysis companyId="company-a" studentId="c" />);
  expect(await screen.findByText('Quadríceps')).toBeInTheDocument();
+ expect(screen.getByText('1 série realizada no período')).toBeInTheDocument();
  expect(screen.getByText(/snapshot da sessão/)).toBeInTheDocument();
 });
 
