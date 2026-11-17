@@ -367,12 +367,6 @@ body[data-sett-professional-shell] :is([role="dialog"], [role="alertdialog"]) :i
   background: hsl(var(--primary) / .14);
 }
 
-@media (max-width: 767px) {
-  .group\/sidebar-wrapper:has(.sett-linen-dock) {
-    --sett-bnito-max-top: max(.75rem, calc(100dvh - 76px - var(--sett-mobile-dock-height) - var(--sett-install-height, 0px) - max(1rem, env(safe-area-inset-bottom, 0px))));
-  }
-}
-
 /* Replace the legacy default serif, while explicit appearance layouts keep
    their own heading typography (notably Editorial and Futurista). */
 :root:where(:not([data-layout]), [data-layout="classico"]) .sett-linen .sett-linen-content :is(h1, h2, h3, h4, h5, h6, .font-display),

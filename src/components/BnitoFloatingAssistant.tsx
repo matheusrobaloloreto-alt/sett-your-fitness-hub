@@ -1,4 +1,4 @@
-import { createContext, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, FormEvent, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { HelpCircle, Loader2, Send, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,6 +20,9 @@ import { readEdgeError } from "@/lib/edgeError";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BenitoSprite, type BenitoState } from "@/components/BenitoSprite";
 import { useBenitoProductState } from "@/lib/benitoProductEvents";
+import { useProfessorAssistantDrag } from "@/lib/useProfessorAssistantDrag";
+import { useSidebar } from "@/components/ui/sidebar";
+import { useWhatsAppChatPanel } from "@/components/WhatsAppChatPanelContext";
 
 type BnitoMessage = {
   id: string;
@@ -94,7 +97,6 @@ const quickPrompts = [
 ];
 
 const WELCOME_ID = "bnito-welcome";
-const POSITION_KEY = "bnito-professor-position-v1";
 // Nome do assistente vem da empresa (Central de IA). Padrão do app = "Setty".
 function makeWelcome(name: string): BnitoMessage {
   return {
@@ -224,26 +226,11 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<BnitoMessage[]>(() => [makeWelcome("Setty")]);
   const [sessionContext, setSessionContext] = useState<BnitoOpenOptions | null>(null);
   const [pageContext, setPageContext] = useState<BnitoOpenOptions | null>(null);
-  const dragStateRef = useRef<{ dx: number; dy: number; moved: boolean; lastClientX: number; startClientX: number; startClientY: number } | null>(null);
-  const dragAbortRef = useRef<AbortController | null>(null);
-  const [dragDirection, setDragDirection] = useState<"running-left" | "running-right" | null>(null);
   const petReactionTimerRef = useRef<number | null>(null);
-  const [buttonPosition, setButtonPosition] = useState(() => {
-    if (typeof window === "undefined") return { x: 0, y: 0 };
-    const stored = window.localStorage.getItem(POSITION_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as { x?: number; y?: number };
-        if (typeof parsed.x === "number" && typeof parsed.y === "number") return parsed;
-      } catch {
-        // Ignore stale localStorage.
-      }
-    }
-    return {
-      x: Math.max(16, window.innerWidth - 92),
-      y: Math.max(16, window.innerHeight - 92),
-    };
-  });
+  const { isMobile } = useSidebar();
+  const { isAvailable: chatAvailable } = useWhatsAppChatPanel();
+  const { position, fits, direction, startDrag, consumeDragGesture } =
+    useProfessorAssistantDrag(isMobile, chatAvailable, location.pathname);
 
   // Atualiza a saudação quando o nome da empresa carrega (se a conversa ainda não começou).
   useEffect(() => {
@@ -273,73 +260,6 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const activeContext = sessionContext || pageContext;
   const activeLabel = activeContext?.label || pageLabel;
   const activeStudentId = activeContext?.studentId || routeStudentId;
-
-  const clampButtonPosition = useCallback((x: number, y: number) => {
-    if (typeof window === "undefined") return { x, y };
-    const margin = 12;
-    const size = 72;
-    return {
-      x: Math.min(Math.max(margin, x), Math.max(margin, window.innerWidth - size - margin)),
-      y: Math.min(Math.max(margin, y), Math.max(margin, window.innerHeight - size - margin)),
-    };
-  }, []);
-
-  useEffect(() => {
-    const onResize = () => setButtonPosition((current) => clampButtonPosition(current.x, current.y));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [clampButtonPosition]);
-
-  useEffect(() => {
-    window.localStorage.setItem(POSITION_KEY, JSON.stringify(buttonPosition));
-  }, [buttonPosition]);
-
-  const handlePointerMove = useCallback((event: PointerEvent) => {
-    const state = dragStateRef.current;
-    if (!state) return;
-    const totalDx = event.clientX - state.startClientX;
-    const totalDy = event.clientY - state.startClientY;
-    if (Math.abs(totalDx) > 5 || Math.abs(totalDy) > 5) state.moved = true;
-    const horizontalDelta = event.clientX - state.lastClientX;
-    if (state.moved && Math.abs(horizontalDelta) >= 3) {
-      setDragDirection(horizontalDelta < 0 ? "running-left" : "running-right");
-      state.lastClientX = event.clientX;
-    }
-    setButtonPosition(clampButtonPosition(event.clientX - state.dx, event.clientY - state.dy));
-  }, [clampButtonPosition]);
-
-  useEffect(() => () => {
-    dragAbortRef.current?.abort();
-    dragAbortRef.current = null;
-  }, []);
-
-  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    dragAbortRef.current?.abort();
-    const rect = event.currentTarget.getBoundingClientRect();
-    dragStateRef.current = {
-      dx: event.clientX - rect.left,
-      dy: event.clientY - rect.top,
-      moved: false,
-      lastClientX: event.clientX,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-    };
-    const controller = new AbortController();
-    dragAbortRef.current = controller;
-    const finishDrag = () => {
-      controller.abort();
-      if (dragAbortRef.current === controller) dragAbortRef.current = null;
-      setDragDirection(null);
-    };
-    const cancelDrag = () => {
-      dragStateRef.current = null;
-      finishDrag();
-    };
-    window.addEventListener("pointermove", handlePointerMove, { signal: controller.signal });
-    window.addEventListener("pointerup", finishDrag, { once: true, signal: controller.signal });
-    window.addEventListener("pointercancel", cancelDrag, { once: true, signal: controller.signal });
-    window.addEventListener("blur", cancelDrag, { once: true, signal: controller.signal });
-  };
 
   const openBnito = useCallback((options?: BnitoOpenOptions) => {
     setSessionContext(options || null);
@@ -429,7 +349,7 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
   const localPetFallback: BenitoState = loading
     ? "processing"
     : petReaction ?? (open ? "waiting" : "idle");
-  const petState = useBenitoProductState("professor", localPetFallback, dragDirection);
+  const petState = useBenitoProductState("professor", localPetFallback, direction);
 
   return (
     <BnitoAssistantContext.Provider value={contextValue}>
@@ -444,17 +364,13 @@ export function BnitoAssistantProvider({ children }: { children: ReactNode }) {
                   data-benito-fab="professor"
                   aria-label={`Abrir ${name}`}
                   onPointerDown={startDrag}
-                  onClick={() => {
-                    if (dragStateRef.current?.moved) {
-                      dragStateRef.current = null;
-                      return;
-                    }
-                    dragStateRef.current = null;
-                    openBnito();
+                  onClick={event => {
+                    if (!consumeDragGesture(event.detail)) openBnito();
                   }}
                   style={{
-                    left: buttonPosition.x,
-                    top: `min(${buttonPosition.y}px, var(--sett-bnito-max-top, 100dvh))`,
+                    left: position.x,
+                    top: position.y,
+                    visibility: fits ? undefined : "hidden",
                     touchAction: "none",
                   }}
                   className="fixed z-40 flex h-[76px] w-[76px] cursor-grab items-center justify-center p-0 text-navy outline-none transition-transform duration-200 active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"

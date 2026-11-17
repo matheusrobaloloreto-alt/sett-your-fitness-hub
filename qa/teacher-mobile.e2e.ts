@@ -476,3 +476,89 @@ test("WorkoutBuilder imports a library template, relinks visible exact-name exer
   await page.screenshot({ path: `${artifactDir}/workout-template-import-save-390.png`, fullPage: true });
   await expectNoExternalLeak(guard);
 });
+
+for (const width of [390, 1280]) {
+  test(`Linho menus stay clear during and after the professor mascot drag at ${width}px`, async ({ page }, testInfo) => {
+    const mobile = width < 768;
+    await page.addInitScript(x => {
+      const key = "bnito-professor-position-v1";
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ x, y: 280 }));
+    }, width - 110);
+    const guard = await openFixture(page, "/trainer", width, 844);
+    const pet = page.locator('[data-benito-fab="professor"]');
+    const menu = mobile
+      ? page.getByRole("button", { name: "Menu", exact: true })
+      : page.getByRole("button", { name: "Recolher ou abrir menu lateral" });
+    const boundary = page.locator(mobile ? ".sett-linen-dock" : '.sett-linen-sidebar > [data-sidebar="sidebar"]');
+
+    async function expectMenuClear() {
+      await expect.poll(async () => {
+        const bounds = await boundary.boundingBox();
+        const mascot = await pet.boundingBox();
+        if (!bounds || !mascot) return false;
+        return mobile ? mascot.y + mascot.height < bounds.y : mascot.x > bounds.x + bounds.width;
+      }, { timeout: 15_000 }).toBe(true);
+    }
+
+    await expect(pet).toBeVisible();
+    await expect(menu).toBeVisible();
+    const assistantName = (await pet.getAttribute("aria-label"))!.replace(/^Abrir /, "");
+    const assistant = page.getByRole("dialog", { name: assistantName, exact: true });
+    const from = (await pet.boundingBox())!;
+    const to = (await menu.boundingBox())!;
+    const start = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+    const end = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+    if (mobile) {
+      const pointer = { pointerId: 35, pointerType: "touch", isPrimary: true, button: 0 };
+      await pet.dispatchEvent("pointerdown", { ...pointer, clientX: start.x, clientY: start.y });
+      await page.evaluate(({ pointer, end }) => {
+        window.dispatchEvent(new PointerEvent("pointermove", {
+          ...pointer, clientX: end.x, clientY: end.y, cancelable: true,
+        }));
+      }, { pointer, end });
+      await expectMenuClear();
+      await page.evaluate(pointer => window.dispatchEvent(new PointerEvent("pointerup", pointer)), pointer);
+    } else {
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(end.x, end.y, { steps: 8 });
+      await expectMenuClear();
+      await page.mouse.up();
+    }
+    await expectMenuClear();
+    await expect.poll(async () => {
+      const placed = await pet.boundingBox();
+      return placed ? Math.hypot(placed.x - from.x, placed.y - from.y) : 0;
+    }).toBeGreaterThan(30);
+    await expect(assistant).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Menu do painel" })).toHaveCount(0);
+    await page.reload();
+    await expect(menu).toBeVisible({ timeout: 15_000 });
+    await expectMenuClear();
+
+    if (mobile) {
+      const drawer = page.getByRole("dialog", { name: "Menu do painel" });
+      if (testInfo.project.use.hasTouch) await menu.tap();
+      else await menu.click();
+      await expect(drawer).toBeVisible();
+      await drawer.getByRole("link", { name: "Interessados", exact: true }).click();
+      await expect(drawer).toBeHidden();
+      await expect(page.getByRole("heading", { name: "Esteira de fechamento" })).toBeVisible();
+      await expectMenuClear();
+      await page.getByRole("navigation", { name: "Navegação rápida" }).getByRole("link", { name: "Agenda" }).click();
+      await expect(page.getByRole("heading", { name: "AGENDA", exact: true })).toBeVisible();
+    } else {
+      const sidebar = page.locator("[data-collapsible][data-variant]");
+      await menu.click();
+      await expect(sidebar).toHaveAttribute("data-state", "collapsed");
+      await expectMenuClear();
+      await menu.click();
+      await expect(sidebar).toHaveAttribute("data-state", "expanded");
+      await expectMenuClear();
+    }
+
+    await pet.click();
+    await expect(assistant).toBeVisible();
+    await expectClean(page, guard, width);
+  });
+}
