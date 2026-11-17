@@ -1,14 +1,14 @@
 # SETT — Manual de operações dos agentes (ChatGPT, Work e Codex)
 
-**Versão:** 2026-11-12. **Responsável pela estratégia:** usuário.  
+**Atualização:** 2026-11-16. **Responsável pela estratégia:** usuário.  
 **Fonte operacional:** issues, PRs, commits e check-runs do repositório canônico.  
-**Estado:** documentação executável; **não** implica que gatilhos Work/Codex estejam habilitados.
+**Estado:** política e runbook operacional, atualizado após o piloto real do PR #11; distinguir recursos comprovados de bloqueios.
 
 ## 1. Resultado pretendido
 
 O usuário conversa principalmente no ChatGPT, que define escopo, prioriza e consolida evidências. O GitHub registra solicitações e resultados. O Codex Cloud desenvolve mudanças autorizadas em ambiente hospedado, e o Work analisa PRs ou faz auditorias quando houver saldo e gatilho configurado. GitHub Actions executa testes e verificações sem depender do Mac.
 
-**Limite atual:** o ChatGPT não é um serviço de orquestração contínua em segundo plano. A criação de uma issue não chama o Codex. O acionamento Work por PR precisa de configuração dentro do Work. Não apresentar esses mecanismos como ativos antes do piloto real.
+**Limite atual:** este chat não é um serviço de execução contínua. O GitHub é o registro compartilhado; sua issue não inicia o Codex automaticamente. A automação Work por PR foi ativada e comprovada no PR #11, enquanto a delegação automática de tarefas para o Codex Cloud permanece bloqueada (#4).
 
 ## 2. Registro e estados das tarefas
 
@@ -58,45 +58,33 @@ Se o saldo do Work/Codex estiver zerado, nenhuma execução deve ser solicitada 
 8. ChatGPT consulta o GitHub, compara aceite versus evidências e descreve eventuais decisões do usuário.
 9. Só após a aprovação exigida e os checks verdes o merge é feito. Deploy permanece uma autorização distinta, com checklist e rollback.
 
-## 6. Gatilho de revisão do Work (ainda não ativado)
+## 6. Gatilho de revisão do Work (ativo para PRs prontos)
 
-Após 16/11 e confirmação de franquia:
+**Comprovado em 13/11/2026:** a automação `Revisão de PRs do SETT` está ativa e foi executada após o evento `ready_for_review` do [PR #11](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/pull/11). O job `verify` passou para o SHA `2634754288ce2836b75c27351005b10471b36ad0` e o Work publicou o relatório [APTO A REVISÃO HUMANA](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/pull/11#issuecomment-6860708064).
 
-- Conectar o repositório autorizado no Work.
-- Escolher o evento compatível **pull request marked ready for review** (ou equivalente que conste na interface).
-- Condição: repositório exato; PR não rascunho; sem execução duplicada para o mesmo head SHA; ignorar PRs exclusivamente de automação se causarem loops.
-- Instrução: revisar escopo, testes, riscos, segurança e critérios sem deploy/merge.
-- Registrar relatório e SHA no PR/artefato autorizado. Se só houver relatório na tarefa Work, adicionar link ao GitHub manualmente até existir integração de retorno.
-- Conferir em **Agendadas** se o gatilho está ativo; testar somente com um PR controlado e créditos disponíveis.
+- Gatilho: somente `pull_request.ready_for_review` no repositório canônico, base `main`, PR aberto/não rascunho. Ignore outros eventos.
+- Deduplicação de revisão: marcador `<!-- sett-work-pr-review:PR:SHA -->`, com número e SHA reais; verificar PR, histórico e commit antes de publicar.
+- Em 16/11/2026, o prompt da automação recebeu um **complemento**, mantendo o gatilho e todas as proibições: publicar também um resumo de handoff na *única* issue explicitamente vinculada, se houver permissão, com marcador `<!-- sett-work-issue-handoff:ISSUE:PR:SHA -->`. Antes de comentar, procurar marcador idêntico, e nunca alterar automaticamente estado/labels/corpo da issue.
+- O comentário da issue registra link do relatório, conclusão, provas da CI, pendências e responsável pela próxima decisão. **Esse complemento ainda precisa ser validado por uma próxima revisão real.**
+- Não há gatilho de Work ativado para comentários de issues ou para auditorias avulsas: estas precisam ser explicitamente iniciadas no Work. A conexão disponível para listar novos eventos retornou `404 Action not found` em 16/11/2026.
+- O Work nunca inicia Codex, CI, merge, deploy, alterações de código, credenciais ou serviços pagos por esse fluxo.
 
-Prompt detalhado: `docs/project/WORK_PR_REVIEW_PROMPT.md`.
+Instruções canônicas: `docs/project/WORK_PR_REVIEW_PROMPT.md`.
 
-A documentação pública indica suporte a tarefas Work acionadas por atividades de pull request em GitHub autorizado: https://help.openai.com/en/articles/20001275 .
+## 7. Codex Cloud (execução manual validada; disparo remoto bloqueado)
 
-## 7. Codex Cloud (ainda não validado)
+- O ambiente `sett-your-fitness-hub` foi publicado, e o usuário confirmou que ele aparece no Mac e no Codex Cloud.
+- **Execução real comprovada:** a issue #9 foi implementada no Codex Cloud, gerando a branch `codex/issue-9-plan-cycle-window`, commit `2634754288ce2836b75c27351005b10471b36ad0` e [PR #11](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/pull/11), criado pelo coordenador após a criação via Codex falhar com `Forbidden` no GitHub GraphQL. CI e revisão Work passaram. Não houve merge/deploy.
+- **Não comprovado:** início sem intervenção do usuário e funcionamento com o Mac desligado.
+- A menção `@codex` na [issue #4](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/issues/4) alcançou o bot GitHub, que respondeu `To use Codex here, create an environment for this repo`. O ambiente moderno existe, mas a compatibilidade com a integração GitHub/Legacy não foi resolvida.
+- A tentativa pelo navegador interno com sessão autenticada selecionou o ambiente Cloud e tentou iniciar a auditoria [#12](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/issues/12), mas retornou `Could not start this chat`; **nenhuma tarefa Codex foi executada ou confirmada**.
+- Enquanto o problema persistir, não acionar a API paga, não duplicar ambientes/credentials e não fingir que abrir uma issue dispara o Codex. Aceitar início manual no Codex Cloud apenas quando autorizado, uma tarefa por vez, com a URL/ID da execução registrada no GitHub.
 
-- Preparar/publicar ambiente com repositório exato, branch `main`, Node, dependências e comandos.
-- Não cadastrar credenciais de produção. Usar dados sintéticos e testes locais.
-- Criar uma tarefa pequena, com aceite objetivo, usando o prompt `docs/project/CODEX_CLOUD_PILOT_PROMPT.md`.
-- Verificar se o usuário precisou iniciar pelo app; esse fato é uma limitação do fluxo, não uma falha do usuário.
-- Registrar id/link de execução, PR, consumo observável e ações manuais.
-- Somente após validar o caminho nativo, avaliar API/SDK/CLI como alternativa **de cobrança separada** e que requer orçamento.
+## 8. Proteção da branch principal (concluída)
 
-Documentação: https://help.openai.com/en/articles/20001545-using-codex-cloud .
+O usuário criou e ativou em 13/11/2026 o ruleset `Protect main - SETT` (ID `27201197`). Consulta de leitura à API do GitHub confirmou que está ativo para `main`: exige pull request e check `verify`, bloqueia force-push e exclusão, sem bypass configurado. A issue [#2](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/issues/2) foi encerrada.
 
-## 8. Branch protection — bloqueio administrativo conhecido
-
-Em 12/11/2026, `GET /branches/main` retornou `protected:false` e `protection.enabled:false`; `GET /rulesets?includes_parents=true` retornou lista vazia. Portanto, a `main` está **sem proteção ativa**. A consulta direta ao endpoint administrativo de proteção retornou `403 Resource not accessible by integration`: a conexão atual pode verificar o estado, mas **não pode criar/alterar a regra**. É necessário acesso administrativo pela interface ou uma integração com permissão específica.
-
-Issue de controle: #2. Recomenda-se:
-- exigir PR para `main`;
-- exigir o status check do job `verify` após confirmar execução real;
-- bloquear force-push/deleção;
-- limitar bypass;
-- escolher política de aprovação compatível com revisores elegíveis do repositório;
-- não ativar auto-merge nem auto-deploy.
-
-Não testar políticas tentando fazer push destrutivo ou contornar regras.
+O ruleset **não substitui aprovação/revisão humana**: revisão formal obrigatória e merge são decisões separadas. Não testar a proteção com push destrutivo. Mudança administrativa posterior exige nova confirmação do estado.
 
 ## 9. Custos, falhas e interrupções
 
@@ -126,12 +114,23 @@ Não criar cron de GitHub Actions, polling contínuo, custo de API ou servidores
 - Nenhuma operação não autorizada em produção.
 - A integração é limitada se Codex não puder ser acionado automaticamente da issue; isso deve ser documentado como estado real.
 
-## 12. Backlog de habilitação
+## 12. Estado do backlog em 16/11/2026
 
-- #2 — branch protection e checagem administrativa;
-- #3 — TypeScript, lint e segurança da CI;
-- #4 — acionamento Codex Cloud;
-- #5 — gatilho e revisão Work;
-- #6 — ciclo-piloto completo.
+- #2 — proteção da `main`: **concluída**.
+- #3 — CI, TypeScript, lint e build: **concluída** (PR #7).
+- #4 — acionamento automático Codex Cloud: **bloqueado por integração/autenticação/ambiente**; não resolvido.
+- #5 — automação Work por `ready_for_review`: **concluída e testada**, com comentário no PR #11; publicação também na issue vinculada foi adicionada ao prompt em 16/11 e ainda requer teste.
+- #6 — ciclo-piloto: **parcialmente validado**; impedimentos de início automático e teste com Mac desligado.
+- #9 — testes de seleção de ciclos: **PR #11 aberto, CI verde, Work APTO A REVISÃO HUMANA**; ainda sem merge.
+- #12 — auditoria da publicação de treinos: **especificada, ainda não executada**; tentativa pela interface Codex retornou `Could not start this chat`.
 
-Revisar este manual quando a execução real mostrar que alguma hipótese estava incorreta.
+## 13. Protocolo de handoff entre conversas
+
+1. **Issue = pedido e estado:** objetivo, autorização, responsável, escopo, critério de aceite, estado (`PLANEJADA`, `AUTORIZADA`, `EM_EXECUÇÃO`, `EM_REVISÃO`, `BLOQUEADA`, `CONCLUÍDA`) e bloqueios com evidência.
+2. **PR = proposta de integração:** número da issue vinculada, branch, SHA, diff, testes e riscos. CI verde é condição necessária, não autorização de merge.
+3. **Work (revisor automático):** publica parecer com marcador por PR/SHA e, quando houver única issue vinculada e permissão, publica nela resumo deduplicável. Não altera status da issue nem código.
+4. **Codex (executor):** ao concluir, registra branch/commit/PR ou diagnóstico verificável na issue. Só executar tarefa cuja autorização esteja registrada; criar issue não autoriza por si só.
+5. **ChatGPT (coordenador):** lê issues, PRs, runs e comentários, consolida evidências e prioriza a próxima entrega. Não presume acesso direto a outros chats nem que uma ferramenta trabalha em segundo plano sem automação.
+6. **Usuário:** decide operações críticas (merge quando exigida sua revisão, deploy, credenciais, banco, regras clínicas e gastos adicionais).
+
+**Limitação técnica:** o fluxo já testado é `Codex iniciado manualmente → branch/PR → GitHub Actions → Work por ready_for_review → registro no GitHub`. O trecho `GitHub issue → Codex Cloud automaticamente` continua bloqueado, e Work não inicia auditoria avulsa por comentário de issue nesta configuração.
