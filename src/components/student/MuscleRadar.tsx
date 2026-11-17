@@ -16,10 +16,11 @@ interface MuscleVolume {
 interface MuscleRadarProps {
   muscleVolumes: MuscleVolume[];
   unit?: "kg" | "sets";
+  showVolumeList?: boolean;
 }
 
 // Aggregates volume per muscle group and renders a radar (spider) chart.
-export function MuscleRadar({ muscleVolumes, unit = "kg" }: MuscleRadarProps) {
+export function MuscleRadar({ muscleVolumes, unit = "kg", showVolumeList = true }: MuscleRadarProps) {
   const { data, maxVolume } = useMemo(() => {
     const agg: Record<string, number> = {};
     muscleVolumes.forEach(({ muscleGroup, volume }) => {
@@ -43,6 +44,9 @@ export function MuscleRadar({ muscleVolumes, unit = "kg" }: MuscleRadarProps) {
     };
   }, [muscleVolumes]);
 
+  const canRenderRadar = data.length >= 3;
+  if (!showVolumeList && !canRenderRadar) return null;
+
   if (data.length === 0) {
     return (
       <div className="flex h-[260px] flex-col items-center justify-center text-center">
@@ -55,7 +59,7 @@ export function MuscleRadar({ muscleVolumes, unit = "kg" }: MuscleRadarProps) {
 
   return (
     <div className="flex flex-col items-center gap-4">
-      {data.length >= 3 && (
+      {canRenderRadar && (
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <RadarChart data={data} outerRadius="72%">
@@ -81,23 +85,24 @@ export function MuscleRadar({ muscleVolumes, unit = "kg" }: MuscleRadarProps) {
         </div>
       )}
 
-      {/* Volume list */}
-      <div className="w-full space-y-1">
-        {data.map((m) => (
-          <div key={m.muscleGroup} className="flex items-center gap-2 text-xs font-sans">
-            <span className="text-foreground min-w-[90px]">{m.muscleGroup}</span>
-            <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary"
-                style={{ width: `${maxVolume > 0 ? (m.volume / maxVolume) * 100 : 0}%` }}
-              />
+      {showVolumeList && (
+        <div className="w-full space-y-1">
+          {data.map((m) => (
+            <div key={m.muscleGroup} className="flex items-center gap-2 text-xs font-sans">
+              <span className="text-foreground min-w-[90px]">{m.muscleGroup}</span>
+              <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${maxVolume > 0 ? (m.volume / maxVolume) * 100 : 0}%` }}
+                />
+              </div>
+              <span className="text-muted-foreground tabular-nums min-w-[70px] text-right">
+                {m.volume.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}{unit === "sets" ? (m.volume === 1 ? " série" : " séries") : "kg"}
+              </span>
             </div>
-            <span className="text-muted-foreground tabular-nums min-w-[70px] text-right">
-              {m.volume.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}{unit === "sets" ? (m.volume === 1 ? " série" : " séries") : "kg"}
-            </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -341,9 +341,11 @@ export function WorkoutAnalysis({ studentId, companyId }: Props) {
               <Activity className="h-4 w-4 text-primary" />
               Distribuição Muscular
             </h3>
-            <div className="w-full">
-              <MuscleRadar muscleVolumes={muscleData.filter(row => row.executedSets > 0).map(mg => ({ muscleGroup: mg.name, volume: mg.executedSets }))} unit="sets" />
-            </div>
+            <MuscleRadar
+              muscleVolumes={muscleData.filter(row => row.executedSets > 0).map(mg => ({ muscleGroup: mg.name, volume: mg.executedSets }))}
+              unit="sets"
+              showVolumeList={false}
+            />
 
             <div className="grid gap-2 sm:grid-cols-2">
               {muscleData.map((mg) => (
