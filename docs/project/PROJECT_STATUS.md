@@ -1,7 +1,7 @@
 # SETT / BN Performance — Estado operacional
 
 **Revisão inicial:** 2026-11-12  
-**Atualização operacional:** 2026-11-13  
+**Atualização operacional:** 2026-11-16  
 **Natureza:** inventário em leitura do repositório. **Não é homologação do sistema em produção.**
 
 ## 1. Objetivo
@@ -40,19 +40,19 @@ Conforme relatório de 05/09/2026, **sem assumir que continuam abertas**:
 
 Não criar dados clínicos, não inventar treinos e não enviar mensagens a pessoas reais para tentar encerrar uma pendência histórica.
 
-## 5. Plano de orquestração
+## 5. Plano de orquestração — 16/11/2026
 
-| Prioridade | Item | Estado em 12/11 |
+| Prioridade | Item | Estado comprovado |
 | --- | --- | --- |
-| P0 | Consolidar instruções de agentes | Concluído — PR #1 integrado após CI verde |
-| P0 | Criar documento de status e formulário de issue | Concluído — PR #1 |
-| P0 | Definir modelo de PR e evidências | Concluído — PR #1 |
-| P0 | Fortalecer TypeScript, lint e permissão mínima de CI | Concluído — PR #7 integrado, issue #3 encerrada |
-| P0 | Proteger `main` | Concluído 13/11; ruleset ativo exige PR e check `verify`, bloqueia force-push/exclusão; issue #2 encerrada |
-| P1 | Codex Cloud | Ambiente SETT Cloud publicado e visível no Mac; acionamento direto por este chat não disponível (#4) |
-| P1 | Gatilho Work | Pendente (#5); tentativa de fontes de evento retornou 404 nesta sessão |
-| P1 | Piloto sem Mac | Issue #9 autorizada, execução ainda não iniciada (#6) |
-| P2 | Monitoramento/alertas automáticos | Planejado; sem cron/Work habilitado |
+| P0 | Instruções, status, templates | **Concluído** — PR #1 |
+| P0 | TypeScript, testes, lint, build | **Concluído** — PR #7 e job `verify` |
+| P0 | Proteção da `main` | **Concluído** — ruleset `Protect main - SETT`, ID `27201197`; issue #2 encerrada |
+| P1 | Codex Cloud | **Piloto manual validado** — branch, commit e PR #11; acionamento por issue `@codex` continua bloqueado (#4) |
+| P1 | Work revisa PRs | **Concluído para `ready_for_review`** — automação disparada e comentário no PR #11; issue #5 encerrada |
+| P1 | Handoff Work → Issue | **Configurado em 16/11, ainda não testado em novo PR** — marcador `sett-work-issue-handoff` |
+| P1 | Piloto coordenado | **Parcialmente validado** — issue #6, falta início autônomo e prova com Mac desligado |
+| P1 | Testes de janela de ciclos | **PR #11 aberto, CI verde, Work APTO A REVISÃO HUMANA**, ainda sem merge — issue #9 |
+| P1 | Auditoria de publicação/portal | **Planejada e bloqueada no início Codex** — issue #12 (`Could not start this chat`) |
 
 ## 6. Processo mínimo durante o piloto
 
@@ -72,28 +72,31 @@ Em 13/11 o usuário informou saldo de 624 créditos compartilhados Work/Codex e 
 - Sem deploy, alteração de secrets, migração destrutiva, integração na `main` ou custo adicional automáticos.
 - Nenhum acesso presumido ao saldo de créditos do Codex.
 
-## 8. Evidências da implantação de governança — 12/11/2026
+## 8. Evidências operacionais — 12 a 16/11/2026
 
-- PR #1, `ff6420cca67ea7dbf9e8a8fbb43b2bd5d6250f95`: instruções, status, issue template e modelo de revisão integrados após CI aprovada.
-- PR #7, `949432823bfb87111edb57c61c82865551f85f6f`: CI fortalecida, quatro erros TypeScript corrigidos, testes aprovados e issue #3 encerrada.
-- Issues #2, #4, #5, #6 documentam as pendências reais. Não atribuir execução automática a elas.
-- PR #8: runbook de operação e prompts de Work/Codex em preparação; nenhuma integração com esses agentes foi ativada.
-Em 13/11, a `main` está `protected:true`, ruleset ativo `Protect main - SETT` e check obrigatório `verify`.
+- PR #1: instruções, status, templates, integrado após CI verde.
+- PR #7: CI e TypeScript corrigidos, integrado após testes.
+- PR #8: runbook e prompts operacionais integrados.
+- Proteção da branch: ruleset `Protect main - SETT` ativo em 13/11, PR + check `verify` exigidos.
+- [PR #11](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/pull/11) e [run do GitHub Actions](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/actions/runs/43476591967): branch Codex, testes aprovados, PR não integrado.
+- [Work reportou APTO A REVISÃO HUMANA no PR #11](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/pull/11#issuecomment-6860708064), com deduplicação PR/SHA.
+- [Issue #4](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/issues/4): `@codex` pelo GitHub retornou necessidade de ambiente mesmo com Cloud moderno publicado; não há solução confirmada.
+- [Issue #12](https://github.com/matheusrobaloloreto-alt/sett-your-fitness-hub/issues/12): tentativa autenticada via Codex Cloud retornou `Could not start this chat` e não criou execução comprovada.
+- Em 16/11 a automação Work por PR foi atualizada para registrar *resumo* na issue vinculada, se houver uma só e com permissão; sem prova real desse complemento ainda.
 
 ## 9. Fontes e próximas provas
 
 - `AGENTS.md`, `CLAUDE.md`, `docs/project/HANDOFF-CODEX.md`.
 - `docs/project/RELATORIO-2026-08-27-FILA-ACUMULADA-SETT-BN.md`.
 - `.github/workflows/quality.yml`, `package.json`, `scripts/verify-canonical-backend.mjs`.
-- Provas pendentes: proteções de branch, check-runs reais, status de deploy, permissões para gatilhos de Work/Codex.
+- Provas pendentes: status de deploy/produção e QA funcional; acionamento automático do Codex; publicação do resumo Work diretamente na issue; execução sem Mac ligado.
 
 Para alterar o estado de uma pendência neste documento, adicionar data, link da evidência e autor da validação.
 
-## 10. Prontidão do piloto — 13/11/2026
+## 10. Prontidão e limites — 16/11/2026
 
-- SETT Cloud publicado no Codex Cloud e visível no Mac, confirmado pelo usuário; execução real ainda não comprovada.
-- Issue #9 autorizada, restrita a testes sem deploy ou merge. Referência de orçamento para a primeira tarefa: 120 créditos, **não imposta tecnicamente**.
-- A conexão GitHub deste chat não dispõe de ação para iniciar uma tarefa Codex Cloud. Criar uma issue não executa o Codex.
-- Para Work, o gatilho GitHub PR pronto para revisão deverá ser criado na interface Work; tentativa de listar eventos via automações retornou 404 nesta sessão. Prompt: docs/project/WORK_PR_REVIEW_PROMPT.md.
-- Nenhum gatilho Work foi instalado, nenhuma tarefa Codex executada e nenhum saldo usado por essas ações nesta sessão.
-- Próximo teste: execução real de #9 no Codex Cloud, PR/CI e revisão Work; registrar custo observado e intervenções.
+- **Comprovado:** Codex Cloud executou a issue #9 com início manual, publicou uma branch e commit; PR #11 foi aberto pelo coordenador após erro de permissão no Codex. GitHub Actions `verify` passou, e a automação Work foi acionada por `ready_for_review`, concluindo auditoria e comentário no PR.
+- **Não comprovado:** início automático de tarefas Codex a partir do chat ou GitHub; operação com Mac desligado; funcionalidades em produção; escrita do Work em issue vinculada pelo novo complemento.
+- **Bloqueios:** `@codex` pede ambiente (issue #4); tentativa autenticada de abrir tarefa Codex para a issue #12 falhou com `Could not start this chat` e não gerou auditoria; chamado ao suporte ainda sem protocolo.
+- **Segurança:** sem merge, deploy ou produção por automações. `main` protegida, PR #11 ainda aberto para avaliação humana. Nenhuma confirmação de saldo via API: o usuário informou créditos renovados, mas o valor atual não é consultável por esta conexão.
+- **Próxima ação:** manter GitHub como registro entre os chats; revalidar complemento Work → Issue num próximo PR elegível, sem reabrir revisão do mesmo SHA; resolver o início Codex por mecanismo suportado antes de solicitar outra execução; auditar o fluxo de publicação da issue #12 sem presumir execução.
