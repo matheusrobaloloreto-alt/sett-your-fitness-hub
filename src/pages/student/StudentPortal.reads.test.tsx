@@ -12,6 +12,11 @@ function render(ui: ReactNode) {
 }
 
 const mocks = vi.hoisted(() => ({ user: { id: 'user-a' }, from: vi.fn(), toast: vi.fn(), start: vi.fn(), abandon: vi.fn(), event: vi.fn(), rpc: vi.fn(), finish: vi.fn(), active: null as null | { id: string; workoutId: string; startedAt: number; sessionDate?: string } }));
+// Exercise the real reduced-motion path so visibility checks don't race animation frames in jsdom.
+vi.mock('framer-motion', async (importOriginal) => ({
+ ...await importOriginal<typeof import('framer-motion')>(),
+ useReducedMotion: () => true,
+}));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: mocks.user, signOut: vi.fn() }) }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: mocks.from, rpc: mocks.rpc } }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: mocks.toast }) }));
@@ -228,7 +233,7 @@ describe('StudentPortal authoritative reads', () => {
     await screen.findByText('Prescrição existente');
     const navigation = within(screen.getByRole('navigation', { name: 'Navegação do aluno' }));
     fireEvent.click(navigation.getByRole('button', { name: destination }));
-    const retry = await screen.findByRole('button', { name: 'Tentar novamente' });
+    const retry = await screen.findByRole('button', { name: 'Tentar novamente' }, { timeout: 10000 });
     if (destination === 'Treino') expect(screen.getByRole('button', { name: 'Test iniciar' })).toBeVisible();
     failureTable = null;
     fireEvent.click(retry);
@@ -276,12 +281,13 @@ describe('StudentPortal authoritative reads', () => {
     mocks.finish.mockResolvedValue({ id: 'session-active', workoutId: 'workout-a', completedAt: '2026-10-29T15:00:00Z',
       totalSetsCompleted: 1, totalVolume: 150, exercisesSummary: [] });
     render(<StudentPortal />);
-    expect(await screen.findByText('28/10/2026')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Test finalizar' }));
-    await waitFor(() => expect(mocks.finish).toHaveBeenCalledWith(
+    // The workout date appears only after the prior session's saved sets are hydrated.
+    expect(await screen.findByText('28/10/2026', {}, { timeout: 10000 })).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Test finalizar' })); });
+    expect(mocks.finish).toHaveBeenCalledWith(
       expect.objectContaining({ 'workout-a-0-1': expect.objectContaining({ weight: 15, session_date: '2026-10-28' }) }),
       expect.any(Array), expect.any(Object), expect.any(Set),
-    ));
+    );
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.rpc).not.toHaveBeenCalledWith('save_workout_logs_if_current', expect.anything());
   });

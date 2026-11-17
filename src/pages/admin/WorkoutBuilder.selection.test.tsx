@@ -35,6 +35,8 @@ vi.mock("@/components/admin/SaveWorkoutToLibraryDialog", async (importOriginal) 
  }};
 });
 
+const volumeTargetsRpc = "get_effective_exercise_targets";
+const studentId = "student-synthetic-qa";
 const companyId = "20000000-0000-4000-8000-000000000001";
 const actorId = "10000000-0000-4000-8000-000000000001";
 const recoveredId = "40000000-0000-4000-8000-000000000001";
@@ -80,7 +82,7 @@ function queryFor(table: string) {
       case "workout_templates": return { data: clone(templates), error: null };
       case "workouts": return { data: clone(rows.get(String(filters.get("cycle_id"))) || []), error: null };
       case "training_cycles": return { data: { cycle_number: 1, enrollment_id: `enrollment-${filters.get("id")}`, company_id: companyId, status: "active" }, error: null };
-      case "enrollments": return { data: { student_id: "student-synthetic-qa", company_id: companyId }, error: null };
+      case "enrollments": return { data: { student_id: studentId, company_id: companyId }, error: null };
       case "students": return { data: { full_name: "Aluno sintetico QA", gender: "male" }, error: null };
       case "student_anamneses": case "functional_assessments": return { data: null, error: null };
       default: throw new Error(`Unexpected synthetic table ${table}`);
@@ -113,6 +115,9 @@ function mountBuilder() {
   return { ...view, rerenderBuilder: () => view.rerender(tree()) };
 }
 const saveButton = () => screen.getByRole("button", { name: /^Salvar Tudo$/ });
+const nonVolumeRpcNames = () => mocks.rpc.mock.calls
+  .map(([name]) => name)
+  .filter((name) => name !== volumeTargetsRpc);
 const waitForDraft = (cycle = "cycle-a") => waitFor(() => expect(screen.getByDisplayValue(`Treino ${cycle} QA`)).toBeInTheDocument());
 
 beforeEach(() => {
@@ -137,6 +142,7 @@ beforeEach(() => {
     return { data: { result: { status: "ok", warnings: [], blockers: [] } }, error: null };
   });
   mocks.rpc.mockImplementation(async (name: string, args: Row) => {
+    if (name === volumeTargetsRpc) return { data: [], error: null };
     if (name === "ensure_workout_library_references") {
       events.push("register");
       return mocks.register(args);
@@ -192,7 +198,7 @@ describe('mounted selector destinations and persistence', () => {
    const video = await screen.findByRole('dialog', {name:'VÍDEO'});
    await waitFor(() => expect(video.querySelector('video')).toHaveAttribute('src','https://example.com/one.mp4'));
    expect(video.querySelector('iframe')).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(nonVolumeRpcNames()).toEqual([]);
    fireEvent.click(within(video).getByRole('button', {name:'Close'}));
    const button = within(watch.parentElement!).getByRole('button', {name:'Adicionar ao treino'});
    act(() => { fireEvent.click(button); fireEvent.click(button); });
@@ -255,14 +261,14 @@ describe('mounted selector destinations and persistence', () => {
    const video = await screen.findByRole('dialog',{name:'VÍDEO'});
    await waitFor(()=>expect(mocks.sign).toHaveBeenCalledWith('company/private.mp4',300));
    expect(video.querySelector('video')).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(nonVolumeRpcNames()).toEqual([]);
    fireEvent.click(within(video).getByRole('button',{name:'Close'}));
    closeLibrary(dialog);
    fireEvent.click(screen.getByRole('link',{name:'Outro ciclo QA'}));
    await screen.findByDisplayValue('Treino cycle-b QA');
    await act(async()=>{held.resolve({data:{signedUrl:'https://synthetic.supabase.co/storage/v1/object/sign/exercises-videos/company/private.mp4?token=synthetic'},error:null});});
    expect(screen.queryByRole('dialog',{name:'VÍDEO'})).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(nonVolumeRpcNames()).toEqual([]);
    vi.unstubAllEnvs();
  },30000);
 
@@ -277,7 +283,7 @@ describe('mounted selector destinations and persistence', () => {
    expect(addButton).toBeDisabled();
    fireEvent.click(addButton);
    expect(mocks.toast).not.toHaveBeenCalled();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(nonVolumeRpcNames()).toEqual([]);
    expect(within(dialog).getByText('Selecione um treino para adicionar')).toBeInTheDocument();
    closeLibrary(dialog);
    choose('Treino A');
@@ -293,13 +299,17 @@ describe('mounted selector destinations and persistence', () => {
    mountBuilder(); await screen.findByDisplayValue('Treino A');
    const dialog = await openLibrary();
    await add(dialog,'one'); closeLibrary(dialog);
+   await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith(volumeTargetsRpc, {
+     p_student_id: studentId,
+     p_exercise_ids: [recoveredId, catalog[0].id],
+   }));
    const libraryPayload = JSON.parse(JSON.stringify(mocks.libraryProps.mock.calls.at(-1)![0].workouts));
    expect(libraryPayload[0].exercises[1]).toMatchObject({youtube_video_id:'abcdefghijk',video_url:null,video_path:null});
    fireEvent.click(screen.getByRole('button',{name:'Assistir one'}));
    const video = await screen.findByRole('dialog',{name:'VÍDEO'});
    await waitFor(()=>expect(video.querySelector('iframe')).toHaveAttribute('src','https://www.youtube-nocookie.com/embed/abcdefghijk'));
    expect(mocks.sign).not.toHaveBeenCalled();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(nonVolumeRpcNames()).toEqual([]);
    fireEvent.click(within(video).getByRole('button',{name:'Close'}));
    await act(async()=>{fireEvent.click(saveButton());});
    expect(screen.getByText('Save confirmado QA')).toBeInTheDocument();
@@ -322,7 +332,7 @@ describe('mounted selector destinations and persistence', () => {
    await act(async()=>{held.resolve({data:{signedUrl:'https://synthetic.supabase.co/storage/v1/object/sign/exercises-videos/company/private.mp4?token=synthetic'},error:null});});
    expect(screen.queryByRole('dialog',{name:'VÍDEO'})).toBeNull();
    expect(document.querySelector('video[src*="token=synthetic"]')).toBeNull();
-   expect(mocks.rpc).not.toHaveBeenCalled();
+   expect(nonVolumeRpcNames()).toEqual([]);
  },30000);
 
  it('discards pending validation after role loss with the same actor and tenant', async () => {
@@ -334,7 +344,7 @@ describe('mounted selector destinations and persistence', () => {
    await waitFor(()=>expect(mocks.invoke).toHaveBeenCalledTimes(1));
    mocks.role='student'; view.rerenderBuilder();
    await act(async()=>{validation.resolve({data:{result:{status:'ok',warnings:[],blockers:[]}},error:null});});
-   expect(mocks.rpc.mock.calls.some(([name])=>name === 'replace_cycle_workout_revision')).toBe(false);
+   expect(nonVolumeRpcNames()).toEqual([]);
    expect(screen.queryByText('Save confirmado QA')).toBeNull();
  },30000);
 

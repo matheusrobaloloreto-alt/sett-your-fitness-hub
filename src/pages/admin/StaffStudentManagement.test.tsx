@@ -12,6 +12,13 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => mocks.auth }));
 vi.mock("@/contexts/MasterContext", () => ({ useMaster: () => mocks.master }));
+// WhatsApp availability is independent of the staff roster and reassignment flows.
+vi.mock("@/hooks/useCompanyFeatures", () => ({
+  useCompanyFeatures: () => ({ hasWhatsApp: false, loading: false, refreshing: false, error: null }),
+}));
+vi.mock("@/hooks/useRolePermissions", () => ({
+  useRolePermissions: () => ({ loading: false, canAccess: () => false }),
+}));
 vi.mock("@/hooks/useCompanyExperiencePolicy", async () => {
   const { DEFAULT_COMPANY_PRODUCT_SETTINGS } = await import('../../../supabase/functions/_shared/company-product-settings');
   return { useCompanyExperiencePolicy: () => ({ policy: DEFAULT_COMPANY_PRODUCT_SETTINGS.experience, error: null, isPending: false }) };
@@ -83,10 +90,12 @@ beforeEach(() => {
   }));
   mocks.from.mockReset().mockImplementation((table: string) => {
     const filters: Record<string, unknown> = {};
+    let page: { from: number; to: number } | undefined;
     let values: unknown;
     const query = {
       select: () => query, order: () => query, in: () => query,
       eq: (key: string, value: unknown) => { filters[key] = value; return query; },
+      range: (from: number, to: number) => { page = { from, to }; return query; },
       update: (payload: unknown) => { values = payload; return query; },
       delete: () => { values = "delete"; return query; },
       then: (resolve: (result: object) => unknown) => {
@@ -97,7 +106,10 @@ beforeEach(() => {
           : table === "user_roles" ? [{ user_id: "actor", role: "trainer" }]
           : table === "profiles" ? [{ user_id: "actor", full_name: "Fixture Actor" }, { user_id: "target-trainer", full_name: "Fixture Target" }]
           : [];
-        return Promise.resolve(mocks.read(table, { ...filters }, { data, error: null })).then(resolve);
+        return Promise.resolve(mocks.read(table, { ...filters }, {
+          data: page ? data.slice(page.from, page.to + 1) : data,
+          error: null,
+        })).then(resolve);
       },
     };
     return query;
