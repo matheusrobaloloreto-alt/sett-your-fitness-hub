@@ -1,19 +1,24 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { canonicalAnamnesisUpdateFromPreRegistration } from "@/lib/preRegistrationData";
+import { canonicalAnamnesisUpdateFromPreRegistration, canonicalPreRegistrationData } from "@/lib/preRegistrationData";
 
 function source(relativePath: string) {
   return readFileSync(relativePath, "utf8");
 }
 
 describe("pre-registration editing contract", () => {
-  it("honors cleared pain and notes instead of falling back to stale injuries", () => {
+  it("clears active pain and notes while preserving legacy clinical history on reload", () => {
+    const existing = { injuries: "Cirurgia anterior | Dor atual: joelho", notes: "Nota anterior" };
     const update = canonicalAnamnesisUpdateFromPreRegistration({
       source: "student_anamnesis", submittedAt: null, budgetRange: null, preferredContactPeriod: null,
-      manualNotes: "", answers: { injuries: "Old pain", current_pain: "" },
-    });
-    expect(update.injuries).toBeNull();
+      manualNotes: "", answers: { injuries: "Cirurgia anterior", current_pain: "" }, editedFields: ["current_pain"],
+    }, {}, existing.injuries);
+    expect(update).not.toHaveProperty("injuries");
     expect(update.notes).toBeNull();
+    const reloaded = canonicalPreRegistrationData({ ...existing, ...update });
+    expect(reloaded).toMatchObject({
+      answers: { injuries: "Cirurgia anterior", current_pain: "" }, manualNotes: "",
+    });
   });
   it.each([true, false, null])("persists kitchen availability %s without changing absent preferences", (hasKitchen) => {
     const update = canonicalAnamnesisUpdateFromPreRegistration({
@@ -28,15 +33,15 @@ describe("pre-registration editing contract", () => {
   it("preserves non-column editable answers in the canonical extension", () => {
     const update = canonicalAnamnesisUpdateFromPreRegistration({
       source: "student_anamnesis", budgetRange: "300_400", preferredContactPeriod: "afternoon",
-      submittedAt: null, answers: { goals: "Keep moving", training_days: ["monday"], current_pain: "None" },
+      submittedAt: null, answers: { goals: "Keep moving", training_days: ["monday"], current_pain: false },
     });
     expect(update).toMatchObject({
-      injuries: "None",
       custom_answers: { staff_pre_registration: {
-        answers: { goals: "Keep moving", training_days: ["monday"] },
+        answers: { goals: "Keep moving", training_days: ["monday"], current_pain: false },
         budgetRange: "300_400", preferredContactPeriod: "afternoon",
       } },
     });
+    expect(update).not.toHaveProperty("injuries");
     expect(update).not.toHaveProperty("goals");
     expect(update).not.toHaveProperty("wants_strength");
   });
@@ -54,7 +59,7 @@ describe("pre-registration editing contract", () => {
     } } } });
   });
 
-  it("maps editable staff fields back to canonical anamnesis columns", () => {
+  it("maps editable staff fields to canonical columns and keeps active pain separate", () => {
     const update = canonicalAnamnesisUpdateFromPreRegistration({
       recordId: "anamnesis-1",
       source: "student_anamnesis",
@@ -67,6 +72,7 @@ describe("pre-registration editing contract", () => {
         days_strength: 4,
         days_cardio: 2,
         session_duration_min: 60,
+        injuries: "Cirurgia anterior",
         current_pain: "joelho leve",
       },
     });
@@ -76,9 +82,11 @@ describe("pre-registration editing contract", () => {
       days_per_week_strength: 4,
       days_per_week_cardio: 2,
       session_duration_min: 60,
-      injuries: "joelho leve",
+      injuries: "Cirurgia anterior",
+      custom_answers: { staff_pre_registration: { answers: { current_pain: "joelho leve" } } },
       notes: "Priorizar técnica antes de carga.",
     });
+    expect(update).not.toHaveProperty("current_pain");
     expect(update).not.toHaveProperty("current_volume_unit");
     expect(update).not.toHaveProperty("nutrition_context");
   });
