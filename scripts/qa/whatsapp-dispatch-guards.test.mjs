@@ -382,4 +382,146 @@ test("synthetic weekly dispatch and cadence migrations on isolated PostgreSQL", 
       throw error;
     }
   });
+  await t.test("batched receipts preserve split clocks and eliminate per-message receipt helper calls", async () => {
+    const signature = "commercial_private.contact_cadence_message_times(uuid, uuid[])";
+    const original = await scalar("select pg_get_functiondef($1::regprocedure) result", [signature]);
+    await db.exec(original.replace("contact_cadence_message_times(", "contact_cadence_message_times_baseline("));
+    const optimized = migration("20261123180131_materialize_contact_cadence_outbound");
+    const aclBefore = await scalar("select proacl::text result from pg_proc where oid=$1::regprocedure", [signature]);
+    await db.exec(optimized);
+    assert.equal(await scalar("select proacl::text result from pg_proc where oid=$1::regprocedure", [signature]), aclBefore);
+    // Replay the existing real SQL regression, including same-second quotes,
+    // failed projections, durable ACK precedence, foreign receipts and RLS.
+    try { await db.exec(splitCadenceSql); }
+    catch (error) { await db.exec("rollback"); throw error; }
+
+    await db.exec("begin");
+    try {
+      const replayMessages = Number(process.env.SETT_QA_CADENCE_REPLAY_MESSAGES || 1000);
+      assert.ok(Number.isSafeInteger(replayMessages) && replayMessages >= 1000 && replayMessages <= 100000);
+      await db.exec(`
+        delete from public.whatsapp_messages;
+        insert into public.whatsapp_messages
+          (chat_id,company_id,timestamp,is_from_me,status,type,origin,sender_id,message_id_external)
+        select '${chat}', '${company}', '2025-01-01'::timestamptz + n * interval '1 second',
+          true, 'sent', 'text', 'panel_manual', '${actor}', 'load-' || n
+        from generate_series(1,${replayMessages}) n;
+        insert into public.automation_dispatch_attempts(kind,owner_id,send_key,lease_token,state,provider_message_id)
+        select 'flow','${owner}','load-' || n,'${lease}','acked','load-' || n
+        from generate_series(1,53) n;
+        insert into public.whatsapp_messages
+          (chat_id,company_id,timestamp,is_from_me,status,type,origin,message_id_external)
+        values ('${chat}','${company}','2025-01-01 00:30Z',false,'sent','text','provider_live','load-inbound');
+      `);
+      const read = (name) => db.query(`select * from commercial_private.${name}($1, $2::uuid[]) order by chat_id`,
+        [company, [chat]]).then(result => result.rows);
+      const compare = async (label) => {
+        assert.deepEqual(await read("contact_cadence_message_times"), await read("contact_cadence_message_times_baseline"), label);
+      };
+      await compare(`${replayMessages} outbound / 53 durable receipts`);
+      await db.exec(`update whatsapp_messages set origin='provider_live', sender_id=null where is_from_me;
+        update whatsapp_messages set origin='panel_manual', sender_id='${actor}' where message_id_external='load-1'`);
+      await db.query(`insert into company_message_sequences(id,company_id,chat_id,snapshot)
+        values ($1,$2,$3,'{}')`, [trainerActor,company,chat]);
+      await db.query(`insert into company_message_parts(sequence_id,part_index,state,receipt)
+        select $1,n,'acked','load-' || (n+53) from generate_series(1,30) n`, [trainerActor]);
+      await compare("provider history and a single human reply / 53 attempts + 30 parts");
+      const times = {};
+      for (const name of ["contact_cadence_message_times_baseline", "contact_cadence_message_times"]) {
+        const start = performance.now();
+        for (let i = 0; i < 3; i++) await read(name);
+        times[name] = Math.round((performance.now() - start) / 3);
+      }
+      t.diagnostic(`PGlite replay mean milliseconds: ${JSON.stringify(times)}`);
+      assert.ok(times.contact_cadence_message_times < times.contact_cadence_message_times_baseline,
+        `batched replay must improve the receipt-heavy baseline: ${JSON.stringify(times)}`);
+      // Add one latest message at a time: each receipt origin must affect the
+      // result, so an unrelated later human message cannot hide a mismatch.
+      await db.exec("delete from public.whatsapp_messages where is_from_me");
+      const receipt = "origin-probe";
+      await db.query(`insert into whatsapp_messages
+        (chat_id,company_id,timestamp,is_from_me,status,type,origin,sender_id,message_id_external)
+        values ($1,$2,'2025-01-01 01:00Z',true,'sent','text','panel_manual',$3,$4)`, [chat,company,actor,receipt]);
+      const reset = () => db.query("delete from automation_dispatch_attempts where provider_message_id=$1", [receipt]);
+      for (const kind of ["flow", "webhook", "intercycle"]) {
+        if (kind === "webhook") await db.query(`insert into webhook_dispatch_owners
+          (id,company_id,chat_id,status) values ($1,$2,$3,'completed')`, [actor,company,chat]);
+        if (kind === "intercycle") await db.query(`insert into intercycle_anamnesis_deliveries
+          (id,company_id,student_id,status) values ($1,$2,$3,'sent')`, [actor,company,student]);
+        const receiptOwner = kind === "flow" ? owner : actor;
+        for (const state of ["acked", "prepared"]) {
+          await reset();
+          await db.query(`insert into automation_dispatch_attempts(kind,owner_id,send_key,lease_token,state,provider_message_id)
+            values ($1,$2,$3,$4,$5,$6)`, [kind,receiptOwner,`origin-${kind}-${state}`,lease,state,receipt]);
+          await compare(`${kind}/${state}`);
+          if (state === "acked" && kind !== "flow") {
+            const table = kind === "webhook" ? "webhook_dispatch_owners" : "intercycle_anamnesis_deliveries";
+            await db.query(`update ${table} set company_id=$1 where id=$2`, [foreignCompany,actor]);
+            await compare(`${kind}/foreign owner tenant`);
+            await db.query(`update ${table} set company_id=$1 where id=$2`, [company,actor]);
+          }
+        }
+      }
+      await reset();
+      await db.query(`insert into company_message_sequences(id,company_id,chat_id,snapshot)
+        values ($1,$2,$3,'{}')`, [actor,company,chat]);
+      await db.query(`insert into company_message_parts(sequence_id,part_index,state,receipt)
+        values ($1,0,'acked',$2)`, [actor,receipt]);
+      for (const metadata of [{}, {actorId:""}, {actorId:actor}, {actorId:" "}]) {
+        await db.query("update company_message_sequences set snapshot=$1::jsonb where id=$2", [{metadata},actor]);
+        await compare(`sequence metadata ${JSON.stringify(metadata)}`);
+      }
+      await db.query("update company_message_sequences set snapshot='{}' where id=$1", [actor]);
+      // Duplicate origins must not multiply messages or quotes.
+      await db.query(`insert into automation_dispatch_attempts(kind,owner_id,send_key,lease_token,state,provider_message_id)
+        values ('flow',$1,'duplicate-origin',$2,'acked',$3)`, [owner,lease,receipt]);
+      await compare("receipt in both ledgers");
+      for (const status of ['failed','deleted','accepted','sent']) {
+        await db.query("update whatsapp_messages set status=$1 where message_id_external=$2", [status,receipt]);
+        await compare(`projection ${status}`);
+      }
+      await db.query("update whatsapp_messages set type='reaction' where message_id_external=$1", [receipt]);
+      await compare("reaction with matching receipt");
+      await db.query("update whatsapp_messages set type='text' where message_id_external=$1", [receipt]);
+      for (const who of [trainerActor,studentActor,foreignCompany]) {
+        await db.query("select set_config('sett.test_actor',$1,true)", [who]);
+        await compare(`actor ${who}`);
+      }
+      await db.query("select set_config('sett.test_actor',$1,true)", [actor]);
+      // is_company_staff can allow roles without company membership. The old
+      // receipt gate must still stay false for such an actor, except master.
+      await db.query("delete from company_members where user_id=$1", [actor]);
+      await compare("admin without receipt membership");
+      await db.query("insert into user_roles values ($1,'master')", [actor]);
+      await compare("master without receipt membership");
+      await db.query("insert into fixture_company_features values ($1,'hasWhatsApp',false)", [company]);
+      await compare("WhatsApp entitlement disabled");
+      assert.deepEqual(await read("contact_cadence_message_times"), []);
+      await db.query("delete from fixture_company_features where company_id=$1", [company]);
+      for (const ids of [[], null, [chat, chat], [chat, foreignCompany]]) {
+        const query = name => db.query(`select * from commercial_private.${name}($1,$2::uuid[]) order by chat_id`, [company,ids]);
+        assert.deepEqual((await query("contact_cadence_message_times")).rows,
+          (await query("contact_cadence_message_times_baseline")).rows, `selection ${JSON.stringify(ids)}`);
+      }
+      // Deterministic performance guard: the optimized worker must never call
+      // either row-by-row receipt helper, irrespective of elapsed-time noise.
+      await db.exec(`create or replace function public.is_automated_cadence_receipt(_company_id uuid,_chat_id uuid,_receipt text)
+        returns boolean language plpgsql stable as $$ begin raise exception 'per-message receipt lookup'; end $$`);
+      await assert.rejects(() => read("contact_cadence_message_times_baseline"), /per-message receipt lookup/);
+      await db.exec("rollback");
+    } catch (error) {
+      await db.exec("rollback");
+      throw error;
+    }
+    // Poison the helper outside a transaction so the failed baseline probe
+    // cannot abort the optimized query's transaction.
+    const helper = await scalar("select pg_get_functiondef('public.is_automated_cadence_receipt(uuid,uuid,text)'::regprocedure) result");
+    try {
+      await db.exec(`create or replace function public.is_automated_cadence_receipt(_company_id uuid,_chat_id uuid,_receipt text)
+        returns boolean language plpgsql stable security definer set search_path='' as $$
+        begin raise exception 'per-message receipt lookup'; end $$`);
+      await scalar("select count(*)::int result from commercial_private.contact_cadence_message_times($1,$2::uuid[])", [company,[chat]]);
+    } finally { await db.exec(helper); }
+  });
+
 });
