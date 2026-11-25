@@ -1,3 +1,4 @@
+import { COUNTRY_OPTIONS, isCountryCode } from "@/lib/countries";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,7 +12,8 @@ import { maxInstallmentsForPlanDuration } from "../../supabase/functions/_shared
 import { DEFAULT_COMPANY_PRODUCT_SETTINGS } from "@/lib/companyProductSettings";
 import { safePublicUrl } from "@/lib/platformSettingsClient";
 import { applyTheme } from "@/contexts/ThemeContext";
-import { formatCPF, formatCEP, formatPhone } from "@/lib/masks";
+import { formatCEP, formatPhone, formatPhoneForCountry } from "@/lib/masks";
+import { billingProfileValidation, billingProfilePayload, internationalCheckoutUrl, paymentFailureMessage, INTERNATIONAL_PAYMENT_UNAVAILABLE } from "@/lib/fiscalRegistration";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -26,7 +28,7 @@ async function callAsaas(checkoutToken: string, action: string, body: Record<str
     body: JSON.stringify({ action, checkoutToken, ...body }),
   });
   const data = await res.json().catch(() => ({ error: "Resposta inválida do servidor de pagamentos." }));
-  if (!res.ok || data.error) throw new Error(data.error || "Erro na operação");
+  if (!res.ok || data.error) throw Object.assign(new Error(data.error || "Erro na operação"), { code: data.code });
   return data;
 }
 
@@ -83,6 +85,11 @@ export default function PublicPayment() {
   const [loading, setLoading] = useState(false);
   const [isRenewal, setIsRenewal] = useState(false);
   const [billingCountryCode, setBillingCountryCode] = useState("");
+  const [payerCountryCode, setPayerCountryCode] = useState("");
+  const [billingConfirmed, setBillingConfirmed] = useState(false);
+  const [billingError, setBillingError] = useState("");
+  const [hostedInvoiceUrl, setHostedInvoiceUrl] = useState("");
+  const isBrazilianPayer = payerCountryCode === "BR";
 
   // Plans
   const [availablePlans, setAvailablePlans] = useState<PlanOption[]>([]);
@@ -113,6 +120,9 @@ export default function PublicPayment() {
     address: "",
     addressNumber: "",
     province: "",
+    city: "",
+    state: "",
+    documentType: "TAX_ID",
   });
 
   const [planValue, setPlanValue] = useState(0);
@@ -168,18 +178,25 @@ export default function PublicPayment() {
       setCompanySlug(/^[a-z0-9]+(-[a-z0-9]+)*$/.test(data.company?.slug || "") ? data.company.slug : "");
       setPublicLinks({ terms_url: safePublicUrl(data.publicBrand?.terms_url) || "", privacy_url: safePublicUrl(data.publicBrand?.privacy_url) || "" });
       setStudent(s);
-      setBillingCountryCode(String(s.billing_country_code || s.country_code || "").toUpperCase());
-      const isBrazilianBilling = String(s.billing_country_code || s.country_code || "").toUpperCase() === "BR";
+      const country = String(s.billing_country_code || s.country_code || "").toUpperCase();
+      setBillingCountryCode(country);
+      setPayerCountryCode(country);
+      setBillingConfirmed(country === "BR");
+      const hasBillingProfile = Boolean(s.billing_country_code);
       setCardForm(prev => ({
         ...prev,
         holderName: s.billing_name || s.full_name || "",
-        email: s.billing_email || (isBrazilianBilling ? s.email : "") || "",
-        cpfCnpj: formatCPF(s.billing_cpf_cnpj || (isBrazilianBilling ? s.cpf : "") || ""),
-        postalCode: formatCEP(s.billing_postal_code || (isBrazilianBilling ? s.cep : "") || ""),
-        phone: formatPhone(s.billing_phone || (String(s.country_code || "").toUpperCase() === "BR" ? (s.whatsapp || s.phone) : "") || ""),
-        address: s.billing_address || (isBrazilianBilling ? s.address : "") || "",
-        addressNumber: s.billing_address_number || (isBrazilianBilling ? s.address_number : "") || "",
-        province: s.billing_neighborhood || (isBrazilianBilling ? s.neighborhood : "") || "",
+        email: s.billing_email || s.email || "",
+        // CNPJ has 14 digits: formatCPF would silently truncate it.
+        cpfCnpj: s.billing_document_number || s.billing_cpf_cnpj || (!hasBillingProfile ? s.cpf : "") || "",
+        documentType: s.billing_document_type || "TAX_ID",
+        postalCode: s.billing_postal_code || (!hasBillingProfile ? s.cep : "") || "",
+        phone: formatPhoneForCountry(s.billing_phone || (!hasBillingProfile ? (s.whatsapp || s.phone) : "") || "", country),
+        address: s.billing_address || (!hasBillingProfile ? s.address : "") || "",
+        addressNumber: s.billing_address_number || (!hasBillingProfile ? s.address_number : "") || "",
+        province: s.billing_neighborhood || (!hasBillingProfile ? s.neighborhood : "") || "",
+        city: s.billing_city || (!hasBillingProfile ? s.city : "") || "",
+        state: s.billing_state || (!hasBillingProfile ? s.state : "") || "",
       }));
       if (s.selected_plan_id) setSelectedPlanOptionId(s.selected_plan_id);
       // White-label: aplica logo + tema da empresa (some o logo BN fixo para outras marcas).
@@ -226,6 +243,8 @@ export default function PublicPayment() {
       setPlanName(plan.name);
       setPlanDurationWeeks(plan.duration_weeks);
       setInstallments(1);
+      setHostedInvoiceUrl("");
+      setBillingError("");
       setStep("choose");
     } catch (error) {
       toast({
@@ -238,72 +257,93 @@ export default function PublicPayment() {
     }
   };
 
-  const maxInstallments = maxInstallmentsForPlanDuration(planDurationWeeks, business);
+  const maxInstallments = isBrazilianPayer ? maxInstallmentsForPlanDuration(planDurationWeeks, business) : 1;
   useEffect(() => { setInstallments(1); }, [maxInstallments, selectedPlanOptionId]);
 
-  const saveBrazilianBillingProfile = async () => {
-    const cpfDigits = cardForm.cpfCnpj.replace(/\D/g, "");
-    const cepDigits = cardForm.postalCode.replace(/\D/g, "");
-    if (!cardForm.holderName.trim()) {
-      toast({ title: "Informe o nome do pagador", variant: "destructive" });
-      return;
-    }
-    if (!cardForm.email.trim() || !cardForm.email.includes("@")) {
-      toast({ title: "Informe um e-mail válido", variant: "destructive" });
-      return;
-    }
-    if (![11, 14].includes(cpfDigits.length)) {
-      toast({ title: "Informe um CPF/CNPJ brasileiro válido", variant: "destructive" });
-      return;
-    }
-    if (cepDigits.length !== 8) {
-      toast({ title: "Informe um CEP brasileiro válido", variant: "destructive" });
-      return;
-    }
-    if (!cardForm.address.trim() || !cardForm.addressNumber.trim() || !cardForm.province.trim()) {
-      toast({ title: "Complete rua, número e bairro da cobrança", variant: "destructive" });
-      return;
-    }
-    if (!token) {
-      toast({ title: "Link de pagamento inválido", variant: "destructive" });
-      return;
-    }
+  const payerBillingInput = () => ({
+    countryCode: payerCountryCode,
+    name: cardForm.holderName,
+    email: cardForm.email,
+    documentType: cardForm.documentType,
+    documentNumber: cardForm.cpfCnpj,
+    postalCode: cardForm.postalCode,
+    phone: cardForm.phone,
+    address: cardForm.address,
+    addressNumber: cardForm.addressNumber,
+    province: cardForm.province,
+    city: cardForm.city,
+    state: cardForm.state,
+  });
 
+  const saveBillingProfile = async () => {
+    const issues = billingProfileValidation(payerBillingInput());
+    if (!isCountryCode(payerCountryCode)) {
+      setBillingError("Selecione o país de cobrança.");
+      return;
+    }
+    if (issues.length) {
+      setBillingError(`Confira: ${issues.join(", ")}.`);
+      return;
+    }
+    if (!token) return;
     setLoading(true);
+    setBillingError("");
+    setHostedInvoiceUrl("");
+    setBillingConfirmed(false);
     try {
+      const billing = billingProfilePayload(payerBillingInput());
       const { data, error } = await supabase.functions.invoke("public-payment-context", {
         body: {
-          action: "set-brazilian-billing-profile",
+          action: isBrazilianPayer ? "set-brazilian-billing-profile" : "set-billing-profile",
           token,
-          billing: {
-            name: cardForm.holderName.trim(),
-            email: cardForm.email.trim(),
-            cpfCnpj: cpfDigits,
-            postalCode: cepDigits,
-            address: cardForm.address.trim(),
-            addressNumber: cardForm.addressNumber.trim(),
-            province: cardForm.province.trim(),
-            phone: cardForm.phone.replace(/\D/g, ""),
-          },
+          billing: isBrazilianPayer ? { ...billing, cpfCnpj: billing.documentNumber } : billing,
         },
       });
-      if (error || data?.error || data?.billingCountryCode !== "BR") {
-        throw new Error(data?.error || error?.message || "Não foi possível validar os dados de cobrança.");
+      if (error || data?.error || data?.billingCountryCode !== payerCountryCode) {
+        // Supabase puts non-2xx response bodies on FunctionsHttpError.context.
+        const failure = data || await error?.context?.json?.().catch(() => null);
+        throw Object.assign(new Error(failure?.error || error?.message || "Não foi possível validar os dados de cobrança."), { code: failure?.code });
       }
-      setBillingCountryCode("BR");
-      toast({ title: "Dados brasileiros confirmados", description: "Pix e cartão foram liberados. Seu WhatsApp internacional não foi alterado." });
+      setBillingCountryCode(data.billingCountryCode);
+      setBillingConfirmed(true);
+      toast({ title: "Dados do pagador salvos", description: "O cadastro e o WhatsApp do aluno foram preservados." });
     } catch (error) {
-      toast({
-        title: "Não foi possível liberar o pagamento",
-        description: error instanceof Error ? error.message : "Revise os dados e tente novamente.",
-        variant: "destructive",
+      setBillingError(paymentFailureMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInternationalCard = async () => {
+    if (!token || !billingConfirmed || isBrazilianPayer || billingCountryCode !== payerCountryCode) return;
+    setLoading(true);
+    setBillingError("");
+    try {
+      const data = await callAsaas(token, "create-foreign-card-payment", {
+        planId: selectedPlanOptionId,
+        billingType: "CREDIT_CARD",
+        installmentCount: 1,
+        currency: "BRL",
+        checkoutMode: "hosted",
       });
+      const url = internationalCheckoutUrl(data);
+      if (!url) throw new Error(INTERNATIONAL_PAYMENT_UNAVAILABLE);
+      setHostedInvoiceUrl(url);
+      await recordRecoveryEvent(token, "payment_started", {
+        method: "CARD", currency: "BRL", installments: 1,
+        plan_name: planName, amount: planValue,
+      }, selectedPlanOptionId, data.paymentId);
+      // Opening an invoice is not a payment confirmation or plan activation.
+      window.location.assign(url);
+    } catch (error) {
+      setBillingError(paymentFailureMessage(error));
     } finally {
       setLoading(false);
     }
   };
 
   const handlePix = async () => {
+    if (!isBrazilianPayer || !billingConfirmed || billingCountryCode !== "BR") return;
     setLoading(true);
     try {
       if (!token) throw new Error("Link de pagamento inválido.");
@@ -391,6 +431,7 @@ export default function PublicPayment() {
   };
 
   const handleCard = async () => {
+    if (!isBrazilianPayer || !billingConfirmed || billingCountryCode !== "BR") return;
     const cpfDigits = cardForm.cpfCnpj.replace(/\D/g, "");
     const cepDigits = cardForm.postalCode.replace(/\D/g, "");
     const phoneDigits = cardForm.phone.replace(/\D/g, "");
@@ -622,37 +663,60 @@ export default function PublicPayment() {
         {/* Step 2: Choose payment method */}
         {step === "choose" && (
           <div className="space-y-4">
-          {billingCountryCode !== "BR" && (
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="text-primary text-xl text-center">DADOS DE COBRANÇA NO BRASIL</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm text-muted-foreground font-sans">
-                  Seu WhatsApp pode continuar internacional. Se o titular possui CPF/CNPJ e endereço de cobrança no Brasil, confirme-os abaixo para liberar Pix e cartão nacionais.
-                </p>
-                <Input value={cardForm.holderName} onChange={e => setCardForm(f => ({ ...f, holderName: e.target.value }))} placeholder="Nome do pagador" />
-                <Input value={cardForm.email} onChange={e => setCardForm(f => ({ ...f, email: e.target.value }))} placeholder="E-mail do titular" />
-                <div className="grid grid-cols-2 gap-3">
-                  <Input value={cardForm.cpfCnpj} onChange={e => setCardForm(f => ({ ...f, cpfCnpj: formatCPF(e.target.value) }))} placeholder="CPF" inputMode="numeric" />
-                  <Input value={cardForm.postalCode} onChange={e => setCardForm(f => ({ ...f, postalCode: formatCEP(e.target.value) }))} placeholder="CEP" inputMode="numeric" />
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-primary text-xl text-center">DADOS DO PAGADOR</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">O país de cobrança pode ser diferente do país de residência do aluno.</p>
+              <fieldset disabled={loading} className="space-y-3" onChange={() => { setBillingConfirmed(false); setBillingError(""); setHostedInvoiceUrl(""); }}>
+                <div>
+                  <Label htmlFor="payer-location">Local de cobrança</Label>
+                  <select id="payer-location" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={isBrazilianPayer ? "BR" : "FOREIGN"} onChange={e => {
+                    setPayerCountryCode(e.target.value === "BR" ? "BR" : "");
+                    setInstallments(1);
+                    setCardForm(f => ({ ...f, cpfCnpj: "", postalCode: "", phone: "" }));
+                  }}>
+                    <option value="BR">Brasil</option><option value="FOREIGN">Exterior</option>
+                  </select>
                 </div>
-                <div className="grid grid-cols-[1fr_100px] gap-3">
-                  <Input value={cardForm.address} onChange={e => setCardForm(f => ({ ...f, address: e.target.value }))} placeholder="Rua / Avenida" />
-                  <Input value={cardForm.addressNumber} onChange={e => setCardForm(f => ({ ...f, addressNumber: e.target.value }))} placeholder="Número" />
-                </div>
-                <Input value={cardForm.province} onChange={e => setCardForm(f => ({ ...f, province: e.target.value }))} placeholder="Bairro" />
-                <Input value={cardForm.phone} onChange={e => setCardForm(f => ({ ...f, phone: formatPhone(e.target.value) }))} placeholder="Telefone brasileiro (obrigatório para cartão)" inputMode="tel" />
-                <Button className="w-full" onClick={saveBrazilianBillingProfile} disabled={loading}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Confirmar dados e liberar pagamento
-                </Button>
-                <p className="text-xs text-muted-foreground font-sans">
-                  Se o titular não possui dados fiscais brasileiros, a equipe precisa habilitar o fluxo internacional do Asaas antes da cobrança.
-                </p>
-              </CardContent>
-            </Card>
-          )}
+                {!isBrazilianPayer && <div>
+                  <Label htmlFor="payer-country">País de cobrança</Label>
+                  <select id="payer-country" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={isCountryCode(payerCountryCode) ? payerCountryCode : ""} onChange={e => {
+                    setPayerCountryCode(e.target.value);
+                    setInstallments(1);
+                    // Selecting a country must not reinterpret the previous payer's document/phone.
+                    setCardForm(f => ({ ...f, cpfCnpj: "", postalCode: "", phone: "" }));
+                  }}>
+                    <option value="">Selecione o país</option>
+                    {COUNTRY_OPTIONS.filter(country => country.code !== "BR").map(country => <option key={country.code} value={country.code}>{country.name}</option>)}
+                  </select>
+                </div>}
+                <div><Label htmlFor="payer-name">Nome do pagador</Label><Input id="payer-name" value={cardForm.holderName} onChange={e => setCardForm(f => ({ ...f, holderName: e.target.value }))} /></div>
+                <div><Label htmlFor="payer-email">E-mail do pagador</Label><Input id="payer-email" type="email" value={cardForm.email} onChange={e => setCardForm(f => ({ ...f, email: e.target.value }))} /></div>
+                {!isBrazilianPayer && <div>
+                  <Label htmlFor="payer-document-type">Tipo de documento</Label>
+                  <select id="payer-document-type" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={cardForm.documentType} onChange={e => setCardForm(f => ({ ...f, documentType: e.target.value }))}>
+                    <option value="TAX_ID">Identificação fiscal local</option><option value="PASSPORT">Passaporte</option><option value="NATIONAL_ID">Documento de identidade</option>
+                  </select>
+                </div>}
+                <div><Label htmlFor="payer-document">{isBrazilianPayer ? "CPF/CNPJ" : "Número do documento"}</Label><Input id="payer-document" value={cardForm.cpfCnpj} maxLength={isBrazilianPayer ? 18 : 80} onChange={e => setCardForm(f => ({ ...f, cpfCnpj: isBrazilianPayer ? e.target.value.replace(/\D/g, "").slice(0, 14) : e.target.value }))} /></div>
+                <div><Label htmlFor="payer-postal">{isBrazilianPayer ? "CEP" : "Código postal (se houver)"}</Label><Input id="payer-postal" value={cardForm.postalCode} onChange={e => setCardForm(f => ({ ...f, postalCode: isBrazilianPayer ? formatCEP(e.target.value) : e.target.value }))} /></div>
+                <div><Label htmlFor="payer-address">Endereço</Label><Input id="payer-address" value={cardForm.address} onChange={e => setCardForm(f => ({ ...f, address: e.target.value }))} /></div>
+                <div><Label htmlFor="payer-number">Número {isBrazilianPayer ? "" : "(se houver)"}</Label><Input id="payer-number" value={cardForm.addressNumber} onChange={e => setCardForm(f => ({ ...f, addressNumber: e.target.value }))} /></div>
+                <div><Label htmlFor="payer-district">Bairro {isBrazilianPayer ? "" : "(se houver)"}</Label><Input id="payer-district" value={cardForm.province} onChange={e => setCardForm(f => ({ ...f, province: e.target.value }))} /></div>
+                {!isBrazilianPayer && <>
+                  <div><Label htmlFor="payer-city">Cidade</Label><Input id="payer-city" value={cardForm.city} onChange={e => setCardForm(f => ({ ...f, city: e.target.value }))} /></div>
+                  <div><Label htmlFor="payer-region">Estado / região (se houver)</Label><Input id="payer-region" value={cardForm.state} onChange={e => setCardForm(f => ({ ...f, state: e.target.value }))} /></div>
+                </>}
+                <div><Label htmlFor="payer-phone">{isBrazilianPayer ? "Telefone do pagador" : "Telefone com + e código do país"}</Label><Input id="payer-phone" type="tel" value={cardForm.phone} onChange={e => setCardForm(f => ({ ...f, phone: formatPhoneForCountry(e.target.value, payerCountryCode) }))} placeholder={isBrazilianPayer ? "(00) 00000-0000" : "+ código do país e número"} /></div>
+              </fieldset>
+              <Button className="w-full" onClick={saveBillingProfile} disabled={loading}>{loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}Confirmar dados do pagador</Button>
+              {billingConfirmed && <p className="text-sm" role="status">Dados de cobrança confirmados.</p>}
+              {!isBrazilianPayer && <p className="text-sm text-muted-foreground">Pagamento internacional: cartão à vista, em reais (BRL), sujeito à disponibilidade do provedor e aprovação do emissor. Pix e boleto não estão disponíveis neste fluxo. Seu banco pode aplicar câmbio e tarifas.</p>}
+              {billingError && <p role="alert" className="text-sm text-destructive">{billingError}</p>}
+            </CardContent>
+          </Card>
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-primary text-xl text-center">ESCOLHA A FORMA DE PAGAMENTO</CardTitle>
@@ -664,23 +728,27 @@ export default function PublicPayment() {
                   R$ {planValue.toFixed(2).replace(".", ",")}
                 </p>
               </div>
-              <Button
+              {isBrazilianPayer && <Button
                 className="w-full h-14 text-lg gap-3"
                 onClick={handlePix}
-                disabled={loading || billingCountryCode !== "BR"}
+                disabled={loading || !billingConfirmed || billingCountryCode !== payerCountryCode}
               >
                 {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <QrCode className="h-5 w-5" />}
                 Pagar com Pix via Asaas
-              </Button>
+              </Button>}
               <Button
                 variant="outline"
                 className="w-full h-14 text-lg gap-3"
-                onClick={() => setStep("card")}
-                disabled={loading || billingCountryCode !== "BR"}
+                onClick={() => isBrazilianPayer ? setStep("card") : void handleInternationalCard()}
+                disabled={loading || !billingConfirmed || billingCountryCode !== payerCountryCode || Boolean(hostedInvoiceUrl)}
               >
                 <CreditCard className="h-5 w-5" />
-                Pagar com Cartão
+                {isBrazilianPayer ? "Pagar com Cartão" : "Preparar pagamento com cartão em BRL"}
               </Button>
+              {hostedInvoiceUrl && !isBrazilianPayer && billingConfirmed && <div className="space-y-2">
+                <a className="block rounded-md bg-primary px-4 py-3 text-center text-primary-foreground" href={hostedInvoiceUrl} target="_blank" rel="noopener noreferrer">Continuar no ambiente seguro do Asaas</a>
+                <p className="text-xs text-muted-foreground" role="status">Cobrança preparada, ainda não paga. O plano só será ativado após confirmação do pagamento.</p>
+              </div>}
               <Button variant="ghost" size="sm" className="w-full" onClick={() => setStep("select_plan")}>
                 ← Trocar plano
               </Button>
@@ -725,7 +793,7 @@ export default function PublicPayment() {
           </Card>
         )}
 
-        {step === "card" && (
+        {step === "card" && isBrazilianPayer && (
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-primary text-xl text-center">CARTÃO DE CRÉDITO</CardTitle>
@@ -843,10 +911,10 @@ export default function PublicPayment() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <Label className="font-sans text-sm">CPF</Label>
+                        <Label className="font-sans text-sm">CPF/CNPJ</Label>
                         <Input
                           value={cardForm.cpfCnpj}
-                          onChange={e => setCardForm(f => ({ ...f, cpfCnpj: formatCPF(e.target.value) }))}
+                          onChange={e => setCardForm(f => ({ ...f, cpfCnpj: e.target.value.replace(/\D/g, "").slice(0, 14) }))}
                           placeholder="000.000.000-00"
                           inputMode="numeric"
                         />

@@ -1,3 +1,4 @@
+import { foreignBillingUpdate } from "./billing-profile.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { assertTenantAccess, HttpError, isUuid } from "../_shared/tenant-auth.ts";
 import { getCompanyProductSettings, type SettingsReadClient } from "../_shared/company-product-settings.ts";
@@ -245,7 +246,7 @@ async function setBrazilianBillingProfile(link: CheckoutLink, body: Record<strin
 
   const { data: current, error: currentError } = await supabase
     .from("students")
-    .select("country_code, cpf, billing_cpf_cnpj, asaas_customer_id")
+    .select("updated_at, country_code, full_name, email, cpf, billing_country_code, billing_name, billing_email, billing_cpf_cnpj, asaas_customer_id")
     .eq("id", link.student_id)
     .eq("company_id", link.company_id)
     .maybeSingle();
@@ -254,12 +255,21 @@ async function setBrazilianBillingProfile(link: CheckoutLink, body: Record<strin
   const currentPayerDocument = digits(
     current.billing_cpf_cnpj || (String(current.country_code || "").toUpperCase() === "BR" ? current.cpf : ""),
   );
-  const payerChanged = Boolean(current.asaas_customer_id && currentPayerDocument !== cpf);
+  const currentCountry = String(current.billing_country_code || current.country_code || "").toUpperCase();
+  if (current.asaas_customer_id && (
+    currentCountry !== "BR" || currentPayerDocument !== cpf
+    || (current.billing_name || current.full_name) !== name
+    || String(current.billing_email || current.email || "").toLowerCase() !== email
+  )) throw new HttpError(409, "O pagador possui vínculo de cobrança. Concilie a identidade antes de substituir os dados.");
 
-  const { error } = await supabase
+  let query = supabase
     .from("students")
     .update({
       billing_country_code: "BR",
+      billing_document_type: null,
+      billing_document_number: null,
+      billing_city: null,
+      billing_state: null,
       billing_name: name,
       billing_email: email,
       billing_cpf_cnpj: cpf,
@@ -268,12 +278,46 @@ async function setBrazilianBillingProfile(link: CheckoutLink, body: Record<strin
       billing_address_number: addressNumber,
       billing_neighborhood: province,
       billing_phone: phone || null,
-      ...(payerChanged ? { asaas_customer_id: null } : {}),
     })
     .eq("id", link.student_id)
     .eq("company_id", link.company_id);
-  if (error) throw new HttpError(500, `Falha ao salvar dados de cobrança: ${error.message}`);
+  query = current.updated_at ? query.eq("updated_at", current.updated_at) : query.is("updated_at", null);
+  const { data: saved, error } = await query.select("id").maybeSingle();
+  if (error) throw new HttpError(500, "Falha ao salvar dados de cobrança.");
+  if (!saved) throw new HttpError(409, "Os dados foram alterados em outra sessão. Atualize a página antes de continuar.");
   return { ok: true, billingCountryCode: "BR" };
+}
+
+async function setForeignBillingProfile(link: CheckoutLink, body: Record<string, unknown>) {
+  let update: ReturnType<typeof foreignBillingUpdate>;
+  try {
+    const billing = body.billing;
+    if (!billing || typeof billing !== "object" || Array.isArray(billing)) throw new Error("Informe os dados do pagador.");
+    update = foreignBillingUpdate(billing as Record<string, unknown>);
+  } catch (error) {
+    throw new HttpError(422, error instanceof Error ? error.message : "Dados de cobrança inválidos.");
+  }
+  const { data: current, error: readError } = await supabase.from("students")
+    .select("updated_at, asaas_customer_id, billing_country_code, billing_name, billing_email, billing_document_type, billing_document_number")
+    .eq("id", link.student_id).eq("company_id", link.company_id).maybeSingle();
+  if (readError) throw new HttpError(500, "Falha ao conferir o pagador atual.");
+  if (!current) throw new HttpError(404, "Aluno não encontrado.");
+  // A provider customer/payment may already exist. Never silently repoint that
+  // identity or detach its orders when a public link changes payer details.
+  if (current.asaas_customer_id && (
+    current.billing_country_code !== update.billing_country_code
+    || current.billing_name !== update.billing_name
+    || current.billing_email?.toLowerCase() !== update.billing_email
+    || current.billing_document_type !== update.billing_document_type
+    || current.billing_document_number !== update.billing_document_number
+  )) throw new HttpError(409, "O pagador possui vínculo de cobrança. Concilie a identidade antes de substituir os dados.");
+  let query = supabase.from("students").update(update)
+    .eq("id", link.student_id).eq("company_id", link.company_id);
+  query = current.updated_at ? query.eq("updated_at", current.updated_at) : query.is("updated_at", null);
+  const { data: saved, error: saveError } = await query.select("id, billing_country_code").maybeSingle();
+  if (saveError) throw new HttpError(500, "Falha ao salvar os dados do pagador.");
+  if (!saved) throw new HttpError(409, "Os dados foram alterados em outra sessão. Atualize a página antes de continuar.");
+  return { ok: true, billingCountryCode: saved.billing_country_code };
 }
 
 Deno.serve(async (req) => {
@@ -299,10 +343,14 @@ Deno.serve(async (req) => {
       return json(await setBrazilianBillingProfile(link, body));
     }
 
+    if (action === "set-billing-profile") {
+      return json(await setForeignBillingProfile(link, body));
+    }
+
     if (action === "context") {
       const { data: student, error: studentError } = await supabase
         .from("students")
-        .select("id, full_name, email, cpf, cep, phone, whatsapp, country_code, billing_country_code, billing_name, billing_email, billing_cpf_cnpj, billing_postal_code, billing_address, billing_address_number, billing_neighborhood, billing_phone, selected_plan_id, address, address_number, neighborhood, fiscal_completed_at, sales_stage")
+        .select("id, full_name, email, cpf, cep, phone, whatsapp, country_code, billing_country_code, billing_name, billing_email, billing_cpf_cnpj, billing_postal_code, billing_address, billing_address_number, billing_neighborhood, billing_phone, billing_document_number, billing_document_type, billing_city, billing_state, selected_plan_id, address, address_number, neighborhood, city, state, fiscal_completed_at, sales_stage")
         .eq("id", link.student_id)
         .eq("company_id", link.company_id)
         .maybeSingle();

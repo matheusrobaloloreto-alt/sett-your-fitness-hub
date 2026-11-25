@@ -1,3 +1,4 @@
+import { effectiveBillingCountryCode, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
 import { isSecondaryCardInstallment, matchesLinkedSecondaryInstallment, matchesSecondaryInstallmentOrder, secondaryInstallmentOrderId, uniquePrimaryCardCharge } from "../_shared/asaas-installment-webhook.ts";
 import { asaasPaymentStatus } from "../_shared/asaas-payment-status.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -313,7 +314,7 @@ Deno.serve(async (req) => {
       if (!enrollmentId) throw new Error("Pagamento confirmado sem matrícula local aplicada.");
 
       const { data: previousStudent } = await supabaseAdmin.from("students")
-        .select("full_name, whatsapp, phone, country_code, company_id")
+        .select("full_name, whatsapp, phone, country_code, billing_country_code, company_id")
         .eq("id", studentId)
         .eq("company_id", companyId)
         .maybeSingle();
@@ -334,8 +335,11 @@ Deno.serve(async (req) => {
       );
 
       if (shouldApplyExternalEffects) {
-        // Emitir NFS-e automaticamente
-        await createInvoice(asaasPaymentId, asaasConfig);
+        // Foreign fiscal handling requires a separate approved policy. Do not
+        // send foreign payers through the existing Brazilian NFS-e integration.
+        if (supportsAsaasBilling(effectiveBillingCountryCode(previousStudent))) {
+          await createInvoice(asaasPaymentId, asaasConfig);
+        }
 
         if (isFirstActivation && previousStudent.full_name) {
         const { data: anamnesis } = await supabaseAdmin

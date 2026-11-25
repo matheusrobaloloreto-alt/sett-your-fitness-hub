@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { assertInstallmentCountAllowed, maxInstallmentsForPlanDuration } from "../../supabase/functions/_shared/payment-installments";
+import { effectiveBillingCountryCode, foreignAsaasBillingProfile, supportsAsaasBilling } from "../../supabase/functions/_shared/fiscal-registration";
 
 const uiSource = readFileSync("src/pages/PublicPayment.tsx", "utf8");
 const edgeSource = readFileSync("supabase/functions/asaas-integration/index.ts", "utf8");
@@ -81,7 +82,8 @@ describe("public credit-card checkout contract", () => {
     expect(edgeSource).toContain("resolveBrazilianBillingProfile(student)");
     expect(edgeSource).toContain("domesticAsaasMobilePhone(student)");
     expect(edgeSource).toContain('billingField(student, "billing_cpf_cnpj", "cpf")');
-    expect(uiSource).toContain("DADOS DE COBRANÇA NO BRASIL");
+    expect(supportsAsaasBilling(effectiveBillingCountryCode({ country_code: "GB", billing_country_code: "BR" }))).toBe(true);
+    expect(supportsAsaasBilling(effectiveBillingCountryCode({ country_code: "GB" }))).toBe(false);
     const profileAction = paymentContextSource.slice(
       paymentContextSource.indexOf("async function setBrazilianBillingProfile"),
       paymentContextSource.indexOf("Deno.serve"),
@@ -93,7 +95,35 @@ describe("public credit-card checkout contract", () => {
     expect(registrationSource).toContain("billingPayloadForRegistration");
     expect(registrationSource).toContain("const paymentLink = await createPaymentLink");
     expect(registrationSource).not.toContain("manualPaymentRequired: true");
-    expect(uiSource).toContain('disabled={loading || billingCountryCode !== "BR"}');
+    const profile = foreignAsaasBillingProfile({
+      country_code: "GB", full_name: "Synthetic payer", email: "payer@example.invalid",
+      cpf: "AB1234", cep: "SW1A 1AA", whatsapp: "+442079460000",
+    }, "true", "sandbox", { billingType: "CREDIT_CARD", installmentCount: 1, currency: "BRL" });
+    expect(profile).toEqual({
+      name: "Synthetic payer", email: "payer@example.invalid", foreignCustomer: true, notificationDisabled: true,
+    });
+    const hostedHandler = uiSource.slice(uiSource.indexOf("const handleInternationalCard ="), uiSource.indexOf("const handlePix ="));
+    expect(hostedHandler).toContain('"create-foreign-card-payment"');
+    expect(hostedHandler).toContain("!billingConfirmed");
+    expect(hostedHandler).toContain("billingCountryCode !== payerCountryCode");
+    expect(hostedHandler).not.toContain("creditCardHolderInfo");
+    expect(hostedHandler).not.toContain('setStep("success")');
+    const pixHandler = uiSource.slice(uiSource.indexOf("const handlePix ="), uiSource.indexOf("const handleCard ="));
+    expect(pixHandler).toContain('!isBrazilianPayer || !billingConfirmed || billingCountryCode !== "BR"');
+  });
+
+  it("fails closed for unenabled environments, invalid fiscal countries, and unsupported foreign methods", () => {
+    const payer = { country_code: "BR", billing_country_code: "GB", billing_name: "Synthetic payer", billing_email: "payer@example.invalid" };
+    expect(() => foreignAsaasBillingProfile(payer, "false", "sandbox")).toThrow();
+    expect(() => foreignAsaasBillingProfile(payer, "false", "production")).toThrow();
+    expect(() => foreignAsaasBillingProfile(payer, "true", "unknown")).toThrow();
+    for (const request of [{ billingType: "PIX" }, { billingType: "BOLETO" }, { installmentCount: 2 }, { currency: "USD" }, { creditCard: {} }]) {
+      expect(() => foreignAsaasBillingProfile(payer, "true", "sandbox", request)).toThrow();
+    }
+    const invalidBilling = { ...payer, billing_country_code: "Portugal" };
+    expect(effectiveBillingCountryCode(invalidBilling)).toBe("");
+    expect(supportsAsaasBilling(effectiveBillingCountryCode(invalidBilling))).toBe(false);
+    expect(() => foreignAsaasBillingProfile(invalidBilling, "true", "sandbox")).toThrow();
   });
 
   it("enforces the typed company installment policy from the authoritative plan duration", () => {

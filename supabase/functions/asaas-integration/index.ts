@@ -2,7 +2,7 @@ import { uniquePrimaryCardCharge } from "../_shared/asaas-installment-webhook.ts
 import { asaasPaymentStatus } from "../_shared/asaas-payment-status.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { businessDateYmd } from "../_shared/business-date.ts";
-import { effectiveBillingCountryCode, supportsAsaasBilling } from "../_shared/fiscal-registration.ts";
+import { effectiveBillingCountryCode, supportsAsaasBilling, foreignAsaasBillingProfile, ForeignBillingError } from "../_shared/fiscal-registration.ts";
 import { assertInstallmentCountAllowed } from "../_shared/payment-installments.ts";
 import { getCompanyProductSettings, type SettingsReadClient } from "../_shared/company-product-settings.ts";
 import { requireCompanyFeature } from "../_shared/company-feature-entitlements.ts";
@@ -240,9 +240,13 @@ async function createCustomer(body: any) {
   // Check if student already has asaas_customer_id
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("asaas_customer_id")
+    .select("asaas_customer_id, country_code, billing_country_code")
     .eq("id", studentId)
     .single();
+
+  if (student && !supportsAsaasBilling(effectiveBillingCountryCode(student))) {
+    throw new HttpError(422, "Use o checkout internacional para cadastrar ou conciliar este pagador estrangeiro.");
+  }
 
   if (student?.asaas_customer_id) {
     return { customerId: student.asaas_customer_id };
@@ -275,15 +279,61 @@ async function createCustomer(body: any) {
   return { customerId: customer.id };
 }
 
+async function ensureForeignCustomer(studentId: string, student: any, profile: ReturnType<typeof foreignAsaasBillingProfile>) {
+  const reference = `sett-foreign:${student.company_id}:${studentId}`;
+  let customer;
+  if (student.asaas_customer_id) {
+    customer = await asaasFetch(`/customers/${student.asaas_customer_id}`);
+  } else {
+    // Reconcile a prior inconclusive customer POST before ever retrying it.
+    const result = await asaasFetch(`/customers?externalReference=${encodeURIComponent(reference)}&limit=2&offset=0`);
+    const matches = Array.isArray(result.data) ? result.data : [];
+    if (matches.length > 1 || result.hasMore) throw new HttpError(409, "Pagador estrangeiro duplicado; concilie o cadastro antes de continuar.");
+    customer = matches[0];
+    if (!customer) {
+      // Existing durable unique (student_id,event_key) serializes first customer
+      // creation across different plans, tokens and concurrent Edge instances.
+      // Never release/retry this claim after an inconclusive provider write.
+      const { error: claimError } = await supabaseAdmin.from("student_funnel_events").insert({
+        student_id: studentId, company_id: student.company_id,
+        event_type: "asaas_foreign_customer_creation", event_key: reference,
+        status: "processing", payload: {},
+      });
+      if (claimError) {
+        if (claimError.code === "23505") throw new HttpError(409, "O cadastro do pagador estrangeiro está sendo conciliado. Aguarde a confirmação antes de tentar novamente.");
+        throw new HttpError(503, "Não foi possível reservar o cadastro do pagador estrangeiro.");
+      }
+      customer = await asaasFetch("/customers", {
+        method: "POST",
+        body: JSON.stringify({ ...profile, externalReference: reference }),
+      });
+    }
+  }
+  // Never turn an existing domestic customer into a foreign payer or reuse another identity.
+  if (!customer?.id || customer.foreignCustomer !== true || customer.externalReference !== reference
+    || customer.name !== profile.name || customer.email?.toLowerCase() !== profile.email.toLowerCase()) {
+    throw new HttpError(409, "O pagador Asaas existente diverge do cadastro estrangeiro. Concilie a identidade antes de continuar.");
+  }
+  const { error } = await supabaseAdmin.from("students")
+    .update({ asaas_customer_id: customer.id }).eq("id", studentId).eq("company_id", student.company_id);
+  if (error) throw new HttpError(500, "Pagador criado; vínculo local pendente de conciliação. Não repita o cadastro manualmente.");
+  student.asaas_customer_id = customer.id;
+  await completeFunnelEvent(supabaseAdmin, studentId, reference, "completed");
+}
+
 async function updateCustomer(body: any) {
   const { studentId, name, email, cpfCnpj, mobilePhone, postalCode, address, addressNumber, province } = body;
   if (!studentId) throw new Error("studentId é obrigatório");
 
   const { data: student } = await supabaseAdmin
     .from("students")
-    .select("asaas_customer_id")
+    .select("asaas_customer_id, country_code, billing_country_code")
     .eq("id", studentId)
     .single();
+
+  if (student && !supportsAsaasBilling(effectiveBillingCountryCode(student))) {
+    throw new HttpError(422, "Use o checkout internacional para cadastrar ou conciliar este pagador estrangeiro.");
+  }
 
   if (!student?.asaas_customer_id) {
     throw new Error("Cliente Asaas não encontrado para este aluno.");
@@ -439,15 +489,33 @@ async function applyExistingPaymentLifecycle(
   );
 }
 
-async function createPayment(body: any) {
+async function assertPaymentPayerScope(providerPayment: any, student: any, foreign: boolean) {
+  // Country changes must never replay an invoice belonging to the previous payer.
+  if (!providerPayment.customer || providerPayment.customer !== student.asaas_customer_id) {
+    throw new HttpError(409, "O pagador da cobrança anterior mudou. Concilie a cobrança antes de continuar.");
+  }
+  const customer = await asaasFetch(`/customers/${providerPayment.customer}`);
+  if ((customer.foreignCustomer === true) !== foreign) {
+    throw new HttpError(409, "O país fiscal da cobrança anterior mudou. Concilie a cobrança antes de continuar.");
+  }
+  if (foreign) {
+    const profile = foreignAsaasBillingProfile(student, Deno.env.get("ASAAS_FOREIGN_CUSTOMERS_ENABLED"), requireAsaasApiConfig().environment);
+    if (customer.externalReference !== `sett-foreign:${student.company_id}:${student.id}`
+      || customer.name !== profile.name || customer.email?.toLowerCase() !== profile.email.toLowerCase()) {
+      throw new HttpError(409, "A identidade do pagador da cobrança anterior mudou. Concilie a cobrança antes de continuar.");
+    }
+  }
+}
+
+async function createPayment(body: any, foreignHosted = false) {
   const { studentId, billingType, dueDate, description, planId } = body;
   if (!studentId || !billingType) {
     throw new Error("studentId e billingType são obrigatórios");
   }
-  if (body.checkoutToken && billingType !== "PIX") {
-    throw new HttpError(400, "O link público aceita somente Pix nesta operação.");
+  if (!foreignHosted && body.checkoutToken && billingType !== "PIX") {
+    throw new HttpError(400, "O link público aceita somente de pagamento nesta operação.");
   }
-  if (!["PIX", "BOLETO", "UNDEFINED"].includes(billingType)) {
+  if (!(foreignHosted ? ["CREDIT_CARD"] : ["PIX", "BOLETO", "UNDEFINED"]).includes(billingType)) {
     throw new HttpError(400, "Forma de pagamento inválida.");
   }
 
@@ -461,7 +529,10 @@ async function createPayment(body: any) {
   if (!student) {
     throw new Error("Aluno não encontrado.");
   }
-  const billingProfile = resolveBrazilianBillingProfile(student);
+  if (body.companyId && student.company_id !== body.companyId) throw new HttpError(403, "Forbidden: student/company mismatch.");
+  const billingProfile = foreignHosted
+    ? foreignAsaasBillingProfile(student, Deno.env.get("ASAAS_FOREIGN_CUSTOMERS_ENABLED"), requireAsaasApiConfig().environment, body)
+    : resolveBrazilianBillingProfile(student);
 
   // SECURITY: amount comes from the plan in the DB, never from the client body.
   const plan = await resolvePlanPrice(student, planId);
@@ -470,10 +541,10 @@ async function createPayment(body: any) {
   const checkoutRequestKey = body.checkoutToken
     ? (body.renewalOfEnrollmentId
       ? `checkout:${body.checkoutToken}:renewal`
-      : `checkout:${body.checkoutToken}:plan:${plan.id}:${billingType}`)
+      : `checkout:${body.checkoutToken}:plan:${plan.id}:${billingType}${foreignHosted ? ":1" : ""}`)
     : null;
 
-  // A retry in the same checkout/day must not create another Pix charge.
+  // A retry in the same checkout/day must not create another de pagamento charge.
   if (checkoutRequestKey) {
     const { data: existingPayment, error: existingError } = await supabaseAdmin
       .from("payments")
@@ -489,6 +560,7 @@ async function createPayment(body: any) {
     if (existingPayment?.asaas_payment_id) {
       assertExistingPaymentScope(existingPayment, studentId, student.company_id);
       const providerPayment = await asaasFetch(`/payments/${existingPayment.asaas_payment_id}`);
+      await assertPaymentPayerScope(providerPayment, { ...student, id: studentId }, foreignHosted);
       const { data: savedPayment, error: updateError } = await supabaseAdmin
         .from("payments")
         .update({
@@ -501,7 +573,8 @@ async function createPayment(body: any) {
         .select("status")
         .single();
       if (updateError) throw new HttpError(500, "Cobrança confirmada no provedor, mas pendente de conciliação local.");
-      if (savedPayment.status === "PENDING" || PAID_PAYMENT_STATUSES.has(savedPayment.status)) {
+      if (savedPayment.status === "PENDING" || PAID_PAYMENT_STATUSES.has(savedPayment.status)
+        || (foreignHosted && ["AWAITING_RISK_ANALYSIS", "AUTHORIZED"].includes(savedPayment.status))) {
         await applyExistingPaymentLifecycle(
           existingPayment,
           { ...providerPayment, status: savedPayment.status },
@@ -516,7 +589,7 @@ async function createPayment(body: any) {
           reused: true,
         };
       }
-      if (body.renewalOfEnrollmentId) {
+      if (foreignHosted || body.renewalOfEnrollmentId) {
         throw new HttpError(409, "A cobrança de renovação precisa ser revisada pela equipe antes de uma nova tentativa.");
       }
       const { error: releaseError } = await supabaseAdmin
@@ -524,7 +597,7 @@ async function createPayment(body: any) {
         .update({ checkout_request_key: null })
         .eq("id", existingPayment.id)
         .eq("company_id", student.company_id);
-      if (releaseError) throw new HttpError(500, "Falha ao liberar uma nova tentativa Pix.");
+      if (releaseError) throw new HttpError(500, "Falha ao liberar uma nova tentativa de pagamento.");
     } else if (existingPayment) {
       assertExistingPaymentScope(existingPayment, studentId, student.company_id);
       const reconciliation = await asaasFetch(
@@ -532,6 +605,7 @@ async function createPayment(body: any) {
       );
       const reconciled = Array.isArray(reconciliation?.data) ? reconciliation.data[0] : null;
       if (reconciled?.id) {
+        await assertPaymentPayerScope(reconciled, { ...student, id: studentId }, foreignHosted);
         const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
           asaas_payment_id: reconciled.id,
           status: asaasPaymentStatus(reconciled) || existingPayment.status,
@@ -553,6 +627,7 @@ async function createPayment(body: any) {
           reconciled: true,
         };
       }
+      if (foreignHosted) throw new HttpError(409, "A cobrança internacional anterior ainda está sendo conciliada.");
       throw new HttpError(409, "A cobrança Pix anterior ainda está sendo conciliada.");
     }
   }
@@ -562,7 +637,7 @@ async function createPayment(body: any) {
   }
 
   // Auto-create Asaas customer if missing
-  if (!student.asaas_customer_id) {
+  if (!foreignHosted && !student.asaas_customer_id) {
     console.log(`[PAYMENT] Auto-creating Asaas customer for student ${studentId}`);
     const { customerId } = await createCustomer({
       studentId,
@@ -571,7 +646,7 @@ async function createPayment(body: any) {
       state: student.state || undefined,
     });
     student.asaas_customer_id = customerId;
-  } else {
+  } else if (!foreignHosted) {
     await updateCustomer({
       studentId,
       ...billingProfile,
@@ -597,12 +672,19 @@ async function createPayment(body: any) {
     plan_duration_weeks_snapshot: plan.duration_weeks,
   }).select("id").single();
   if (orderError || !localOrder) {
-    if (orderError?.code === "23505") throw new HttpError(409, "A cobrança Pix já está em processamento.");
-    throw new HttpError(500, "Falha ao preparar cobrança Pix.");
+    if (orderError?.code === "23505") throw new HttpError(409, "A cobrança de pagamento já está em processamento.");
+    throw new HttpError(500, "Falha ao preparar cobrança de pagamento.");
   }
 
   let payment: any;
   try {
+    // Reserve the unique local order BEFORE any foreign customer side effect.
+    if (foreignHosted) {
+      await ensureForeignCustomer(studentId, student, billingProfile as ReturnType<typeof foreignAsaasBillingProfile>);
+      const { error: customerLinkError } = await supabaseAdmin.from("payments")
+        .update({ asaas_customer_id: student.asaas_customer_id }).eq("id", localOrder.id).eq("company_id", student.company_id);
+      if (customerLinkError) throw new HttpError(500, "Falha ao vincular pagador à cobrança local.");
+    }
     payment = await asaasFetch("/payments", {
       method: "POST",
       body: JSON.stringify({
@@ -630,7 +712,7 @@ async function createPayment(body: any) {
     asaas_invoice_url: payment.invoiceUrl || null,
     invoice_url: payment.invoiceUrl || null,
   }).eq("id", localOrder.id).select("status").single();
-  if (updateError) throw new HttpError(500, "Cobrança Pix criada, mas pendente de conciliação local.");
+  if (updateError) throw new HttpError(500, "Cobrança de pagamento criada, mas pendente de conciliação local.");
 
   // Ativar aluno automaticamente se pagamento já confirmado
   if (PAID_PAYMENT_STATUSES.has(savedPayment.status)) {
@@ -647,6 +729,12 @@ async function createPayment(body: any) {
 async function getPixQrCode(body: any) {
   const { paymentId } = body;
   if (!paymentId) throw new Error("paymentId é obrigatório");
+
+  const { data: localPayment, error: paymentError } = await supabaseAdmin.from("payments")
+    .select("billing_type").eq("asaas_payment_id", paymentId).maybeSingle();
+  if (paymentError || !localPayment || localPayment.billing_type !== "PIX") {
+    throw new HttpError(422, "Esta cobrança não permite pagamento via Pix.");
+  }
 
   const data = await asaasFetch(`/payments/${paymentId}/pixQrCode`);
   if (!data?.encodedImage || !data?.payload) {
@@ -721,6 +809,7 @@ async function createCardPayment(body: any) {
     if (existingPayment?.asaas_payment_id) {
       assertExistingPaymentScope(existingPayment, studentId, student.company_id);
       const providerPayment = await asaasFetch(`/payments/${existingPayment.asaas_payment_id}`);
+      await assertPaymentPayerScope(providerPayment, { ...student, id: studentId }, false);
       const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
         status: asaasPaymentStatus(providerPayment) || existingPayment.status,
         invoice_url: providerPayment.invoiceUrl || existingPayment.invoice_url,
@@ -751,6 +840,7 @@ async function createCardPayment(body: any) {
         ? uniquePrimaryCardCharge<any>(reconciliation.data, externalReference, student.asaas_customer_id, allowedInstallmentCount)
         : null;
       if (reconciled?.id) {
+        await assertPaymentPayerScope(reconciled, { ...student, id: studentId }, false);
         const { data: savedPayment, error: updateError } = await supabaseAdmin.from("payments").update({
           asaas_payment_id: reconciled.id,
           status: asaasPaymentStatus(reconciled) || existingPayment.status,
@@ -1584,7 +1674,7 @@ Deno.serve(async (req) => {
       "sync-payments",
       "financial-installment-snapshot",
     ]);
-    const checkoutActions = new Set(["create-payment", "get-pix-qrcode", "create-card-payment", "get-payment-status"]);
+    const checkoutActions = new Set(["create-payment", "create-foreign-card-payment", "get-pix-qrcode", "create-card-payment", "get-payment-status"]);
     if (adminActions.has(action)) {
       const tenant = await requireAdminTenant(req, body);
       body.companyId = body.companyId || tenant.companyId;
@@ -1613,6 +1703,10 @@ Deno.serve(async (req) => {
         break;
       case "create-payment":
         result = await createPayment(body);
+        break;
+      case "create-foreign-card-payment":
+        // Do not allow request fields to alter the provider method or add card data.
+        result = await createPayment({ ...body, billingType: body.billingType ?? "CREDIT_CARD" }, true);
         break;
       case "get-pix-qrcode":
         result = await getPixQrCode(body);
@@ -1643,12 +1737,12 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("Edge function error:", error);
+    console.error("Edge function error", { status: error instanceof HttpError || error instanceof ForeignBillingError ? error.status : 400 });
     const message = error instanceof Error ? error.message : "Erro interno";
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ error: message, ...(error instanceof ForeignBillingError ? { code: error.code } : {}) }),
       {
-        status: error instanceof HttpError || error instanceof FeatureHttpError ? error.status : 400,
+        status: error instanceof HttpError || error instanceof FeatureHttpError || error instanceof ForeignBillingError ? error.status : 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );

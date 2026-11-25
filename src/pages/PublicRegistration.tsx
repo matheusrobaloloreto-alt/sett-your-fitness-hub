@@ -1,3 +1,4 @@
+import { COUNTRY_OPTIONS, isCountryCode } from "@/lib/countries";
 import { useState, useEffect } from "react";
 import { Navigate, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -405,7 +406,7 @@ export default function PublicRegistration() {
     if (isBrazil && !neighborhood) missing.push("Bairro");
     if (!city) missing.push("Cidade");
     if (!state) missing.push("Estado");
-    if (!/^[A-Z]{2}$/.test(countryCode)) missing.push("País (código de 2 letras)");
+    if (!isCountryCode(countryCode)) missing.push("País de residência");
     if (!whatsapp) missing.push("WhatsApp");
     if (!email) missing.push("Email");
 
@@ -1090,13 +1091,16 @@ export default function PublicRegistration() {
             </div>
             {!isBrazil && (
               <div className="space-y-2">
-                <Label className="font-sans">Código do país (ISO, 2 letras) *</Label>
-                <Input
-                  value={countryCode}
-                  onChange={(event) => setCountryCode(event.target.value.replace(/[^a-z]/gi, "").slice(0, 2).toUpperCase())}
-                  placeholder="Ex: PT, US, GB"
-                  maxLength={2}
-                />
+                <Label htmlFor="registration-country" className="font-sans">País de residência no exterior *</Label>
+                <select
+                  id="registration-country"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={isCountryCode(countryCode) ? countryCode : ""}
+                  onChange={(event) => setCountryCode(event.target.value)}
+                >
+                  <option value="">Selecione o país</option>
+                  {COUNTRY_OPTIONS.filter(country => country.code !== "BR").map(country => <option key={country.code} value={country.code}>{country.name}</option>)}
+                </select>
               </div>
             )}
             <div className="space-y-2">
