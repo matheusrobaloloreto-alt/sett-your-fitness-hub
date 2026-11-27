@@ -229,6 +229,27 @@ describe('mounted selector destinations and persistence', () => {
    choose('Treino C'); dialog = await openLibrary();
    expect(within(dialog).getByText('1 exercício(s) no treino')).toBeInTheDocument();
  }, 30000);
+ it('bulk edit persists only the selected workout and week', async () => {
+   setup();
+   rows.set('cycle-a', initializeNewWeeklyWorkoutDraft(rows.get('cycle-a') as Array<Row & {exercises: Array<{sets:string;reps:string;rest:string;notes:string}>}>));
+   const original = clone(rows.get('cycle-a'))!;
+   mountBuilder(); await screen.findByDisplayValue('Treino A');
+   fireEvent.mouseDown(screen.getByRole('tab',{name:'Treino B'}),{button:0,ctrlKey:false});
+   fireEvent.click(screen.getByRole('button',{name:'Edição em massa'}));
+   const dialog=screen.getByRole('dialog');
+   fireEvent.change(within(dialog).getByLabelText('Séries'),{target:{value:'4'}});
+   fireEvent.change(within(dialog).getByLabelText('Repetições'),{target:{value:'6–8'}});
+   fireEvent.change(within(dialog).getByLabelText('Descanso (segundos)'),{target:{value:'0'}});
+   fireEvent.click(within(dialog).getByRole('button',{name:'Aplicar na semana 1'}));
+   await act(async()=>{fireEvent.click(saveButton());});
+   await screen.findByText('Save confirmado QA');
+   const saved=mocks.rpc.mock.calls.find(([name])=>name==='replace_cycle_workout_revision')![1].p_workouts;
+   for (const index of [0,2]) expect(saved[index].exercises[0].weekly_prescription).toEqual((original[index].exercises as Row[])[0].weekly_prescription);
+   const weeks=saved[1].exercises[0].weekly_prescription;
+   expect(weeks[0]).toMatchObject({sets:4,reps:'6–8',rest_seconds:0});
+   expect(weeks.slice(1)).toEqual(((original[1].exercises as Row[])[0].weekly_prescription as Row[]).slice(1));
+ },30000);
+
  it('new draft workout retains identity across edits and exports weekly metrics without UI keys', async () => {
    setup();
    rows.set('cycle-a', initializeNewWeeklyWorkoutDraft(rows.get('cycle-a') as Array<Row & { exercises: Array<{ sets: string; reps: string; rest: string; notes: string }> }>) as Row[]);

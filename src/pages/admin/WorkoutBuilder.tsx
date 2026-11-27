@@ -1,3 +1,5 @@
+import { BulkWorkoutWeekEditor } from '@/components/admin/BulkWorkoutWeekEditor';
+import { editWorkoutWeek } from '@/lib/bulkWorkoutWeek';
 import { resolveExerciseMedia, type ExerciseMediaInput } from "@/lib/exerciseMediaSource";
 import { ExercisePreviewPlayer } from "@/components/admin/ExercisePreviewPlayer";
 import { resolveWorkoutTarget, withWorkoutKeys, withoutWorkoutKeys } from "@/lib/workoutSelection";
@@ -1834,9 +1836,18 @@ export default function WorkoutBuilder() {
                     <div className="flex min-w-0 items-center gap-2">
                       <h2 className="break-words text-lg text-primary sm:text-xl">EXERCÍCIOS ({workout.exercises.length})</h2>
                     </div>
+                    <div className="flex flex-wrap gap-2">
+                      {weeklyPrescriptionMode === "weekly" && <BulkWorkoutWeekEditor
+                        key={`${workout.clientKey}:${editingWeekStart}`}
+                        week={editingWeekStart} title={workout.title}
+                        disabled={saving || workout.exercises.length === 0 || workout.exercises.some(ex => !individualWeeklyUiVersionForExercise(ex, weeklyPrescriptionMode))}
+                        onApply={patch => setWorkouts(previous => previous.map(current => current.clientKey === workout.clientKey
+                          ? { ...current, exercises: editWorkoutWeek(current.exercises, editingWeekStart, patch) } : current))}
+                      />}
                     <Button className="w-full sm:w-auto" onClick={() => setLibraryOpen(true)} disabled={saving}>
                       <Plus className="h-4 w-4 mr-2" />Adicionar
                     </Button>
+                    </div>
                   </div>
 
                   {workout.exercises.length === 0 && (
