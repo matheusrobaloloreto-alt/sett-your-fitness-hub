@@ -1,4 +1,6 @@
+import type { BnDesign } from "../../supabase/functions/_shared/bnContentDesign";
 export interface RenderableBnSlide {
+  design?: BnDesign;
   role: "capa" | "conteudo" | "cta";
   title: string;
   subtitle?: string;
@@ -7,6 +9,7 @@ export interface RenderableBnSlide {
 }
 
 export interface RenderableBnSpec {
+  design?: BnDesign;
   format: string;
   aesthetic: string;
   slides: RenderableBnSlide[];
@@ -19,8 +22,10 @@ const MARGIN = 82;
 const BRAND = { navy: "#0D1B3E", ink: "#111214", paper: "#F4F2ED", sand: "#C8A876" };
 export type BnRenderBrand=typeof BRAND & {name:string;handle:string};
 
-export function bnSlideDimensions(format: string) {
-  return { width: WIDTH, height: ["story", "reels"].includes(format) ? 1920 : 1350 };
+export function bnSlideDimensions(format: string, design?: BnDesign) {
+  const height = design?.dimensions === "square" ? 1080 : design?.dimensions === "story" ? 1920
+    : design?.dimensions === "portrait" ? 1350 : ["story", "reels"].includes(format) ? 1920 : 1350;
+  return { width: WIDTH, height };
 }
 
 export function bnRichText(text: string): TextRun[] {
@@ -38,11 +43,11 @@ export function bnRichText(text: string): TextRun[] {
   return runs;
 }
 
-function setFont(ctx: CanvasRenderingContext2D, size: number, run?: TextRun, serif = false) {
-  ctx.font = `${run?.italic ? "italic " : ""}${run?.bold ? "700" : "400"} ${size}px ${serif ? "Georgia" : "Arial"}`;
+function setFont(ctx: CanvasRenderingContext2D, size: number, run?: TextRun, serif = false, font?: BnDesign["font"]) {
+  ctx.font = `${run?.italic ? "italic " : ""}${run?.bold ? "700" : "400"} ${size}px ${font === "serif" || (font === "mixed" && serif) || (!font && serif) ? "Georgia" : "Arial"}`;
 }
 
-export function wrapBnText(ctx: CanvasRenderingContext2D, text: string, size: number, maxWidth: number, serif = false): Line[] {
+export function wrapBnText(ctx: CanvasRenderingContext2D, text: string, size: number, maxWidth: number, serif = false, font?: BnDesign["font"]): Line[] {
   const lines: Line[] = [[]];
   let width = 0;
   const append = (run: TextRun, measured: number) => {
@@ -51,7 +56,7 @@ export function wrapBnText(ctx: CanvasRenderingContext2D, text: string, size: nu
   };
   const newLine = () => { lines.push([]); width = 0; };
   for (const run of bnRichText(text)) {
-    setFont(ctx, size, run, serif);
+    setFont(ctx, size, run, serif, font);
     for (const token of run.text.split(/(\n|[^\S\n]+)/).filter(Boolean)) {
       if (token === "\n") { newLine(); continue; }
       const whitespace = /^\s+$/.test(token);
@@ -73,16 +78,16 @@ export function wrapBnText(ctx: CanvasRenderingContext2D, text: string, size: nu
   return lines;
 }
 
-function drawLines(ctx: CanvasRenderingContext2D, lines: Line[], x: number, y: number, size: number, color: string, serif: boolean, centered = false,accentColor=BRAND.sand) {
+function drawLines(ctx: CanvasRenderingContext2D, lines: Line[], x: number, y: number, size: number, color: string, serif: boolean, centered = false,accentColor=BRAND.sand, font?: BnDesign["font"], align?: BnDesign["align"], areaWidth=WIDTH-MARGIN*2) {
   const lineHeight = Math.ceil(size * 1.3);
   for (const line of lines) {
     const lineWidth = line.reduce((sum, run) => {
-      setFont(ctx, size, run, serif);
+      setFont(ctx, size, run, serif, font);
       return sum + ctx.measureText(run.text).width;
     }, 0);
-    let cursor = centered ? (WIDTH - lineWidth) / 2 : x;
+    let cursor = align === "right" ? x + areaWidth - lineWidth : (align === "center" || (!align && centered)) ? x + (areaWidth - lineWidth) / 2 : x;
     for (const run of line) {
-      setFont(ctx, size, run, serif);
+      setFont(ctx, size, run, serif, font);
       ctx.fillStyle = run.accent ? accentColor : color;
       ctx.fillText(run.text, cursor, y);
       cursor += ctx.measureText(run.text).width;
@@ -103,18 +108,12 @@ function imageFromUrl(url: string): Promise<HTMLImageElement> {
   });
 }
 
-function cover(ctx: CanvasRenderingContext2D, image: HTMLImageElement, height: number) {
-  const scale = Math.max(WIDTH / image.naturalWidth, height / image.naturalHeight);
-  const width = image.naturalWidth * scale;
-  const scaledHeight = image.naturalHeight * scale;
-  ctx.drawImage(image, (WIDTH - width) / 2, (height - scaledHeight) / 2, width, scaledHeight);
-}
-
 export async function renderBnContentSlide(spec: RenderableBnSpec, index: number, options: { backgroundUrl?: string; logoUrl?: string|null;brand?:BnRenderBrand; companyMedia?: boolean } = {}): Promise<Blob> {
   const brand=options.brand || {...BRAND,name:"BN Performance Training",handle:"@bnperformancetraining"};
   const slide = spec.slides[index];
   if (!slide) throw new Error("Slide não encontrado.");
-  const { width, height } = bnSlideDimensions(spec.format);
+  const { width, height } = bnSlideDimensions(spec.format, spec.design);
+  const design = { ...spec.design, ...slide.design };
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -122,24 +121,44 @@ export async function renderBnContentSlide(spec: RenderableBnSpec, index: number
   if (!ctx) throw new Error("Este navegador não conseguiu abrir a prévia do slide.");
   ctx.textBaseline = "top";
 
-  const light = !(options.companyMedia && options.backgroundUrl) && spec.aesthetic === "l1_educativo" && slide.role === "conteudo";
-  const serif = /l2_|l3_|l4_/.test(spec.aesthetic);
+  const configured = Boolean(spec.design || slide.design);
+  const family = design.family || "editorial";
+  const imageArea = design.imageArea || (slide.role === "capa" ? "background" : family === "visual" ? (index % 2 ? "right" : "top") : (index % 2 ? "right" : "background"));
+  const hasImage = Boolean(options.backgroundUrl) && (!configured || imageArea !== "none");
+  const light = configured ? !hasImage || imageArea !== "background"
+    : !options.backgroundUrl && spec.aesthetic === "l1_educativo" && slide.role === "conteudo";
+  const serif = design.font === "mixed" || /l2_|l3_|l4_/.test(spec.aesthetic);
   const centered = slide.role === "cta" || spec.aesthetic === "l4_evento_teaser";
-  const background = light ? brand.paper : spec.aesthetic === "l3_aviso" ? brand.ink : brand.navy;
+  const background = design.background || (light ? brand.paper : spec.aesthetic === "l3_aviso" ? brand.ink : brand.navy);
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, width, height);
-  if (options.backgroundUrl && (options.companyMedia || (slide.role !== "cta" && !light && spec.aesthetic !== "l3_aviso"))) {
-    const image = await imageFromUrl(options.backgroundUrl);
-    cover(ctx, image, height);
-    ctx.fillStyle = `${brand.navy}B3`;
-    ctx.fillRect(0, 0, width, height);
+  const imageRight = configured && hasImage && imageArea === "right";
+  const imageTop = configured && hasImage && imageArea === "top";
+  const topImageHeight = Math.round(height * .34);
+  if (hasImage) {
+    const image = await imageFromUrl(options.backgroundUrl!);
+    const x = imageRight ? Math.round(width * .59) : 0;
+    const y = imageRight || imageTop ? 180 : 0;
+    const targetWidth = imageRight ? width - x - MARGIN : width;
+    const targetHeight = imageTop ? topImageHeight : imageRight ? height - 350 : height;
+    const scale = Math.max(targetWidth / image.naturalWidth, targetHeight / image.naturalHeight);
+    const imageWidth = image.naturalWidth * scale, imageHeight = image.naturalHeight * scale;
+    ctx.save(); ctx.beginPath(); ctx.rect(x, y, targetWidth, targetHeight); ctx.clip();
+    ctx.drawImage(image, x + (targetWidth - imageWidth) * (design.focusX ?? 50) / 100,
+      y + (targetHeight - imageHeight) * (design.focusY ?? 50) / 100, imageWidth, imageHeight);
+    ctx.restore();
+    if (!imageRight && !imageTop) {
+      ctx.fillStyle = `${brand.navy}B3`; ctx.fillRect(0, 0, width, height);
+    }
   }
   const logo = options.logoUrl===null ? null : await imageFromUrl(options.logoUrl || "/bn-content/logo.png");
   const logoHeight = 64;
   const logoWidth = logo ? Math.min(100, logoHeight * logo.naturalWidth / logo.naturalHeight):0;
   const drawnLogoHeight = options.companyMedia && logo ? logo.naturalHeight * logoWidth / logo.naturalWidth : logoHeight;
   if(logo)ctx.drawImage(logo, MARGIN, 62, logoWidth, drawnLogoHeight);
-  const foreground = light ? brand.ink : "#FFFFFF";
+  const backgroundRgb = /^#[0-9a-f]{6}$/i.test(background) ? [1, 3, 5].map(at => parseInt(background.slice(at, at + 2), 16)) : [0, 0, 0];
+  const darkBackground = backgroundRgb[0] * .299 + backgroundRgb[1] * .587 + backgroundRgb[2] * .114 < 145;
+  const foreground = design.textColor || (hasImage && imageArea === "background" || darkBackground ? "#FFFFFF" : brand.ink);
   ctx.fillStyle = foreground;
   ctx.font = "700 25px Arial";
   ctx.fillText(brand.name, MARGIN + logoWidth + 18, 68,WIDTH-MARGIN*2-logoWidth-18);
@@ -151,30 +170,39 @@ export async function renderBnContentSlide(spec: RenderableBnSpec, index: number
     ctx.fillRect(MARGIN, 177, WIDTH - MARGIN * 2, 2);
   }
 
-  const paragraphs = [slide.subtitle, slide.body, ...(slide.bullets || []).map((value) => `• ${value}`)].filter((value): value is string => Boolean(value?.trim()));
-  const maxWidth = WIDTH - MARGIN * 2;
-  const available = height - 390;
+  const numbered = configured && family === "didatico" && slide.role === "conteudo";
+  const paragraphs = [slide.subtitle, slide.body, ...(slide.bullets || []).map((value, index) => numbered ? `${String(index + 1).padStart(2, "0")}  ${value}` : `• ${value}`)].filter((value): value is string => Boolean(value?.trim()));
+  const maxWidth = imageRight ? Math.round(width * .59) - MARGIN * 1.5 : WIDTH - MARGIN * 2;
+  const textTop = imageTop ? 180 + topImageHeight + 56 : 235;
+  const available = height - textTop - 155;
   let titleSize = slide.role === "capa" ? 96 : 72;
   let bodySize = 43;
   let titleLines: Line[] = [];
   let bodyLines: Line[][] = [];
   let textHeight = 0;
   for (;;) {
-    titleLines = wrapBnText(ctx, slide.title, titleSize, maxWidth, serif);
-    bodyLines = paragraphs.map((text) => wrapBnText(ctx, text, bodySize, maxWidth));
+    titleLines = wrapBnText(ctx, slide.title, titleSize, maxWidth, serif, design.font);
+    bodyLines = paragraphs.map((text) => wrapBnText(ctx, text, bodySize, maxWidth, false, design.font));
     textHeight = titleLines.length * Math.ceil(titleSize * 1.3)
-      + bodyLines.reduce((sum, lines) => sum + lines.length * Math.ceil(bodySize * 1.3) + 24, 0) + 36;
+      + bodyLines.reduce((sum, lines) => sum + lines.length * Math.ceil(bodySize * 1.3) + 24, 0) + 36 + (design.symbols ? 65 : 0);
     if (textHeight <= available) break;
     if (titleSize <= 36 && bodySize <= 24) throw new Error(`O texto do slide ${index + 1} não cabe sem cortes. Divida o conteúdo em mais slides.`);
     titleSize = Math.max(36, titleSize - 2);
     bodySize = Math.max(24, bodySize - 1);
   }
-  let y = slide.role === "capa" || centered ? Math.max(235, height - textHeight - 170) : 235;
-  ctx.fillStyle = brand.sand;
-  ctx.fillRect(centered ? (WIDTH - 88) / 2 : MARGIN, y - 26, 88, 6);
-  y = drawLines(ctx, titleLines, MARGIN, y, titleSize, foreground, serif, centered,brand.sand) + 36;
+  const position = design.position || (slide.role === "cta" ? "center" : slide.role === "capa" ? "bottom" : "top");
+  let y = position === "center" ? textTop + Math.max(0, (available - textHeight) / 2)
+    : position === "bottom" ? textTop + Math.max(0, available - textHeight) : textTop;
+  const align = design.align || (centered ? "center" : "left");
+  ctx.fillStyle = design.accent || brand.sand;
+  ctx.fillRect(align === "center" ? MARGIN + (maxWidth - 88) / 2 : align === "right" ? MARGIN + maxWidth - 88 : MARGIN, y - 26, 88, 6);
+  y = drawLines(ctx, titleLines, MARGIN, y, titleSize, foreground, serif, centered, design.accent || brand.sand, design.font, align, maxWidth) + 36;
   for (const lines of bodyLines) {
-    y = drawLines(ctx, lines, MARGIN, y, bodySize, light ? brand.ink : "#E3E0D9", false, centered,brand.sand) + 24;
+    y = drawLines(ctx, lines, MARGIN, y, bodySize, foreground, false, centered, design.accent || brand.sand, design.font, align, maxWidth) + 24;
+  }
+  if (design.symbols) {
+    ctx.fillStyle = foreground; ctx.font = "38px Arial";
+    ctx.fillText(design.symbols, MARGIN, Math.min(height - 140, y + 12), maxWidth);
   }
   ctx.fillStyle = light ? brand.navy : "#FFFFFF";
   ctx.font = "400 24px Arial";

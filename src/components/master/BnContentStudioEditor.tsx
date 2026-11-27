@@ -1,3 +1,5 @@
+import { BnContentSetup } from "./BnContentSetup";
+import { BnContentDesignControls } from "./BnContentDesignControls";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Check, Download, ImagePlus, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,16 +13,18 @@ type Props = {
   assets: Record<string, string>; busy: boolean; dirty: boolean;
   onChange: (draft: BnContentDraft) => void;
   onSave: (status: "draft" | "approved", copy?: boolean) => void;
-  onGenerate: (options: { objective?: string; format_key?: string; pillar?: string }) => void;
+  onGenerate: (options: { objective?: string; format_key?: string; pillar?: string; withImages?: boolean }) => void;
   onRevise: (instruction: string) => void;
+  onUpload: (file: File, target: number | string) => void; onReference: (id: string) => void; onDocument: (file: File) => void;
   onImage: (index: number) => void; onExport: () => void;
 };
 const selectClass = "flex h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
-export function BnContentStudioEditor({ draft, settings, capabilities, assets, busy, dirty, onChange, onSave, onGenerate, onRevise, onImage, onExport }: Props) {
+export function BnContentStudioEditor({ draft, settings, capabilities, assets, busy, dirty, onChange, onSave, onGenerate, onRevise, onImage, onExport, onUpload, onReference, onDocument }: Props) {
   const [selected, setSelected] = useState(0);
   const [instruction, setInstruction] = useState("");
   const [objective, setObjective] = useState("");
+  const [withImages, setWithImages] = useState(true);
   const [pillar, setPillar] = useState("");
   const [formatKey, setFormatKey] = useState("");
   const spec = draft.spec;
@@ -64,12 +68,18 @@ export function BnContentStudioEditor({ draft, settings, capabilities, assets, b
           {aesthetics.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
         </select></label>
       </div>
+      <BnContentSetup spec={spec} onChange={next => onChange({ ...draft, spec: next })} onUpload={onUpload} onReference={onReference} onDocument={onDocument} assets={assets} />
       <label className="block space-y-1 text-xs">Briefing<Textarea rows={3} maxLength={6000} value={draft.brief} onChange={e => onChange({ ...draft, brief: e.target.value })} /></label>
       <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <label className="block min-w-0 space-y-1 text-xs">Objetivo<select className={selectClass} value={objective} onChange={e => setObjective(e.target.value)}><option value="">Selecionar</option>{settings.objectives.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
         <label className="block min-w-0 space-y-1 text-xs">Pilar<select className={selectClass} value={pillar} onChange={e => setPillar(e.target.value)}><option value="">Selecionar</option>{settings.pillars.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-        <Button variant="outline" disabled={!capabilities.text || !draft.brief.trim()} onClick={() => onGenerate({ objective: objective || undefined, format_key: effectiveFormatKey || undefined, pillar: pillar || undefined })}><Sparkles />Gerar conteúdo</Button>
+        <Button variant="outline" disabled={!capabilities.text || !draft.brief.trim()} onClick={() => onGenerate({ objective: objective || undefined, format_key: effectiveFormatKey || undefined, pillar: pillar || undefined, withImages })}><Sparkles />Gerar conteúdo</Button>
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={withImages} disabled={!capabilities.images} onChange={event => setWithImages(event.target.checked)} />
+        Gerar imagens junto com o conteúdo
+      </label>
+      <p className="text-xs text-muted-foreground">{capabilities.images ? "As imagens serão geradas nos slides que tiverem uma cena descrita e área de imagem ativa. Você pode gerar novamente em cada slide." : "Geração de imagens indisponível neste ambiente. O envio de imagens continua disponível."}</p>
       {!capabilities.text && <p className="text-xs text-muted-foreground">Geração de texto indisponível.</p>}
       <div className="min-w-0 border-t pt-4">
         <div className="mb-3 flex min-w-0 items-center gap-2">
@@ -89,6 +99,7 @@ export function BnContentStudioEditor({ draft, settings, capabilities, assets, b
                 updateSpec({ slides: spec.slides.filter((_, at) => at !== index) }); setSelected(Math.max(0, index - 1));
               }}><Trash2 /></Button>
             </div>
+            <details className="rounded border p-3"><summary className="cursor-pointer text-sm">Layout deste slide</summary><div className="mt-3"><BnContentDesignControls value={slide.design || {}} onChange={design => updateSlide({ design })} /></div><p className="mt-2 text-xs text-muted-foreground">Use **negrito**, *itálico* e ==palavra== para destacar o texto.</p><Button variant="ghost" size="sm" onClick={() => updateSlide({ design: undefined })}>Restaurar layout do post</Button></details>
             <label className="block space-y-1 text-xs">Título do slide<Input required maxLength={240} value={slide.title} onChange={e => updateSlide({ title: e.target.value })} /></label>
             <label className="block space-y-1 text-xs">Subtítulo<Input maxLength={500} value={slide.subtitle || ""} onChange={e => updateSlide({ subtitle: e.target.value })} /></label>
             <label className="block space-y-1 text-xs">Texto<Textarea rows={3} maxLength={4000} value={slide.body || ""} onChange={e => updateSlide({ body: e.target.value })} /></label>
@@ -97,6 +108,7 @@ export function BnContentStudioEditor({ draft, settings, capabilities, assets, b
             <div className="flex flex-wrap items-center gap-2"><Button size="sm" variant="outline" disabled={!capabilities.images || !slide.image_scene?.trim()} onClick={() => onImage(index)}><ImagePlus />Gerar imagem</Button>
               {slide.background_path && <Button size="icon" variant="ghost" title="Remover imagem" aria-label="Remover imagem" onClick={() => updateSlide({ background_path: undefined })}><X /></Button>}
             </div>
+            <label className="block text-xs">Enviar imagem para este slide<input type="file" accept="image/png,image/jpeg" className="mt-1 block w-full text-xs" onChange={e => { const file = e.target.files?.[0]; if (file) onUpload(file, index); e.target.value = ''; }} /></label>
             {!capabilities.images && <p className="text-xs text-muted-foreground">Geração de imagens indisponível.</p>}
           </div>
           <BnContentStudioPreview spec={spec} index={index} assets={assets} />
@@ -110,7 +122,7 @@ export function BnContentStudioEditor({ draft, settings, capabilities, assets, b
         <label className="min-w-0 flex-1 space-y-1 text-xs">Revisão<Textarea rows={2} maxLength={4000} value={instruction} onChange={e => setInstruction(e.target.value)} /></label>
         <Button variant="outline" disabled={!capabilities.text || !instruction.trim() || !valid} onClick={() => onRevise(instruction)}><Sparkles />Revisar</Button>
       </div>
-      {draft.post && !spec.slides.some(item => item.background_path) && <Button size="sm" variant="ghost" disabled={!valid} onClick={() => onSave("draft", true)}><Save />Salvar como novo rascunho</Button>}
+      {draft.post && !spec.slides.some(item => item.background_path) && !spec.references?.some(ref => ref.asset_path) && <Button size="sm" variant="ghost" disabled={!valid} onClick={() => onSave("draft", true)}><Save />Salvar como novo rascunho</Button>}
     </fieldset>
   </section>;
 }

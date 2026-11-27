@@ -1,3 +1,4 @@
+import type { BnDesign } from "../_shared/bnContentDesign.ts";
 import brain from "../_shared/bnContentBrain.json" with { type: "json" };
 import type { BnContentSpec, BnStudioSettings } from "../_shared/bnContent.ts";
 import type { PlatformProductSettings } from "../_shared/platform-product-settings.ts";
@@ -23,6 +24,7 @@ export const BN_STUDIO_SETTINGS: BnStudioSettings = {
 };
 
 export interface GenerateInput {
+  design?: BnDesign;
   brief: string;
   format: string;
   audience: string;
@@ -120,6 +122,7 @@ EXEMPLOS APROVADOS POR MASTERS (referencias; nao representam treinamento automat
     JSON.stringify(examples)
   }
 TAREFA: ${JSON.stringify(input)}
+${input.design ? 'A familia visual foi escolhida pelo usuario. Para visual, distribua image_scene nos slides que precisarem de foto. Para editorial, use imagem na capa e em um slide interno quando ajudar. Para didatico, alterne listas em bullets e frases curtas. Use ==palavra== para destacar termos importantes com criterio, sem destacar paragrafos inteiros. Mantenha campos JSON do contrato, sem design ou references na resposta. Nao copie texto de exemplos.' : ''}
 Mantenha exatamente format=${input.format} e aesthetic=${input.aesthetic}.`;
 }
 

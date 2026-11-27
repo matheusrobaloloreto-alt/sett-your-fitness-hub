@@ -1,3 +1,5 @@
+import { validateBnDesign, validateBnReferences } from "./bnContentDesign.ts";
+import type { BnDesign, BnReference } from "./bnContentDesign.ts";
 // Runtime-independent contract shared by the edge function and Studio UI.
 export const BN_CONTENT_FORMATS = [
   "carrossel",
@@ -32,9 +34,12 @@ export const BN_CONTENT_LIMITS = {
 export interface BnContentSpec {
   format: string;
   aesthetic: string;
+  design?: BnDesign;
+  references?: BnReference[];
   topic: string;
   audience: string;
   slides: {
+    design?: BnDesign;
     role: "capa" | "conteudo" | "cta";
     title: string;
     subtitle?: string;
@@ -132,6 +137,8 @@ export function validateBnContentSpec(value: unknown): value is BnContentSpec {
   if (
     !bnContentRecord(value) || !bnContentKeys(value, [
       "format",
+      "design",
+      "references",
       "aesthetic",
       "topic",
       "audience",
@@ -140,6 +147,8 @@ export function validateBnContentSpec(value: unknown): value is BnContentSpec {
       "hashtags",
     ])
   ) return false;
+  if (value.design !== undefined && !validateBnDesign(value.design)) return false;
+  if (value.references !== undefined && (!validateBnReferences(value.references) || value.references.some(ref => ref.asset_path !== undefined && !isBnContentAssetPath(ref.asset_path)))) return false;
   if (
     !(BN_CONTENT_FORMATS as readonly unknown[]).includes(value.format) ||
     !(BN_CONTENT_AESTHETICS as readonly unknown[]).includes(value.aesthetic) ||
@@ -160,6 +169,7 @@ export function validateBnContentSpec(value: unknown): value is BnContentSpec {
     if (
       !bnContentRecord(slide) || !bnContentKeys(slide, [
         "role",
+        "design",
         "title",
         "subtitle",
         "body",
@@ -169,6 +179,7 @@ export function validateBnContentSpec(value: unknown): value is BnContentSpec {
       ]) || !["capa", "conteudo", "cta"].includes(slide.role as string) ||
       !bnContentText(slide.title, BN_CONTENT_LIMITS.title)
     ) return false;
+    if (slide.design !== undefined && !validateBnDesign(slide.design)) return false;
     for (
       const [key, max] of [
         ["subtitle", BN_CONTENT_LIMITS.subtitle],

@@ -32,7 +32,7 @@ export function BnContentStudioPreview({ spec, index, assets }: { spec: BnConten
   }, [spec, index, backgroundPath, backgroundUrl, logoUrl,identity]);
 
   return <div className="flex min-w-0 items-center justify-center bg-muted/30 p-3">
-    <div className={`relative flex w-full max-w-[360px] items-center justify-center overflow-hidden ${bnSlideDimensions(spec.format).height === 1920 ? "aspect-[9/16]" : "aspect-[4/5]"}`}>
+    <div className="relative flex w-full max-w-[360px] items-center justify-center overflow-hidden" style={{ aspectRatio: `1080 / ${bnSlideDimensions(spec.format, spec.design).height}` }}>
       {preview.url ? <img src={preview.url} alt={`Slide ${index + 1}: ${spec.slides[index]?.title || ""}`} className="h-full w-full object-contain" />
         : preview.error ? <p role="alert" className="p-4 text-center text-sm text-destructive">{preview.error}</p>
           : <Loader2 aria-label="Renderizando slide" className="h-6 w-6 animate-spin text-muted-foreground" />}

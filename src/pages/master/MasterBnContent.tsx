@@ -11,7 +11,7 @@ import { BnContentStudioCalendar } from "@/components/master/BnContentStudioCale
 import { BnContentStudioEditor } from "@/components/master/BnContentStudioEditor";
 import {
   BnContentStudioError, bnContentDraftSnapshot, bootstrapBnContentStudio, generateBnContent,
-  generateBnContentImage, newBnContentSpec, reviseBnContent, saveBnContentPost,
+  generateBnContentImage, uploadBnContentImage, inspectBnContentReference, newBnContentSpec, reviseBnContent, saveBnContentPost,
   type BnContentDraft, type BnStudioBootstrap, type BnStudioPost,
 } from "@/lib/bnContentStudio";
 import { bnSlideDimensions, downloadBnContentBlob, renderBnContentSlide } from "@/lib/bnContentRenderer";
@@ -69,6 +69,7 @@ export default function MasterBnContent() {
   const [notice, setNotice] = useState("");
   const [editorSession, setEditorSession] = useState(0);
   const generation = useRef(0);
+  const operationActive = useRef(false);
   const mounted = useRef(true);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -104,10 +105,11 @@ export default function MasterBnContent() {
     setError(cause instanceof Error ? cause.message : "Não foi possível concluir a operação. Sua edição foi preservada.");
   };
   const perform = async (label: string, action: () => Promise<void>) => {
-    if (busy || loading) return;
+    if (operationActive.current || loading) return;
+    operationActive.current = true;
     setBusy(label); setError(""); setNotice("");
     try { await action(); } catch (cause) { fail(cause); }
-    finally { if (mounted.current) setBusy(""); }
+    finally { operationActive.current = false; if (mounted.current) setBusy(""); }
   };
   const acceptPost = (post: BnStudioPost) => {
     if (!mounted.current) return;
@@ -130,24 +132,113 @@ export default function MasterBnContent() {
     setDraft(next); setSavedSnapshot(bnContentDraftSnapshot(next)); setTab("studio"); setConflict(false); setError(""); setNotice("");
     setEditorSession(current => current + 1);
   };
-  const generate = (options: { objective?: string; format_key?: string; pillar?: string }) => {
+  const generateImageForDraft = async (current: BnContentDraft, index: number): Promise<BnContentDraft> => {
+    const slide = current.spec.slides[index];
+    if (!slide?.image_scene?.trim()) throw new Error("Descreva a cena da imagem antes de gerar.");
+    let post = current.post;
+    if (!post || bnContentDraftSnapshot(current) !== JSON.stringify({ brief: post.brief, spec: post.spec })) {
+      post = await saveBnContentPost({
+        ...(post ? { id: post.id, expected_version: post.version } : {}),
+        brief: current.brief, spec: current.spec, status: "draft",
+      });
+      if (!mounted.current) return current;
+      acceptPost(post);
+    }
+    setNotice("");
+    const result = await generateBnContentImage({
+      post_id: post.id, slide_index: index, scene: slide.image_scene!,
+      aspect: bnSlideDimensions(post.spec.format, post.spec.design).height === 1920 ? "9:16" : "4:5",
+    });
+    if (!mounted.current) return current;
+    const spec = { ...post.spec, slides: post.spec.slides.map((item, at) =>
+      at === index ? { ...item, background_path: result.path } : item) };
+    setData(previous => previous && { ...previous, assets: { ...previous.assets, [result.path]: result.signedUrl } });
+    // Preserve the generated asset locally if the association save conflicts.
+    setDraft({ post, brief: post.brief, spec });
+    const saved = await saveBnContentPost({
+      id: post.id, expected_version: post.version, brief: post.brief, spec, status: "draft",
+    });
+    acceptPost(saved);
+    return { post: saved, brief: saved.brief, spec: saved.spec };
+  };
+  const generate = (options: { objective?: string; format_key?: string; pillar?: string; withImages?: boolean }) => {
     if (!draft) return;
     if (draft.spec.slides.some(slide => slide.title.trim()) && !window.confirm("Substituir o conteúdo atual pela nova geração?")) return;
     void perform("Gerando conteúdo…", async () => {
-      const spec = await generateBnContent({ brief: draft.brief, format: draft.spec.format, aesthetic: draft.spec.aesthetic, audience: draft.spec.audience, ...options });
-      if (mounted.current) setDraft({ ...draft, spec });
+      const { withImages, ...contentOptions } = options;
+      const generated = await generateBnContent({ design: draft.spec.design, brief: draft.brief, format: draft.spec.format, aesthetic: draft.spec.aesthetic, audience: draft.spec.audience, ...contentOptions });
+      if (!mounted.current) return;
+      const spec = { ...generated, design: draft.spec.design, references: draft.spec.references,
+        slides: generated.slides.map((slide, index) => ({ ...slide,
+          ...(draft.spec.slides[index]?.background_path ? { background_path: draft.spec.slides[index].background_path } : {}),
+          ...(draft.spec.slides[index]?.design ? { design: draft.spec.slides[index].design } : {}),
+        })),
+      };
+      let next: BnContentDraft = { ...draft, spec };
+      setDraft(next);
+      if (!withImages || !data?.capabilities.images) return;
+      const indexes = spec.slides.flatMap((slide, index) => slide.image_scene?.trim() && !slide.background_path && (slide.design?.imageArea ?? spec.design?.imageArea) !== "none" ? [index] : []);
+      for (const [at, index] of indexes.entries()) {
+        if (!mounted.current) return;
+        setBusy(`Gerando imagem ${at + 1} de ${indexes.length}…`);
+        next = await generateImageForDraft(next, index);
+      }
+      if (mounted.current && indexes.length) setNotice("Conteúdo e imagens gerados e salvos.");
     });
   };
   const image = (index: number) => {
-    if (!draft?.post || dirty) { setError("Salve o rascunho antes de gerar a imagem."); return; }
-    void perform("Gerando imagem…", async () => {
-      const result = await generateBnContentImage({ post_id: draft.post!.id, slide_index: index, scene: draft.spec.slides[index].image_scene || "", aspect: bnSlideDimensions(draft.spec.format).height === 1920 ? "9:16" : "4:5" });
+    if (!draft) return;
+    void perform("Salvando e gerando imagem…", async () => {
+      await generateImageForDraft(draft, index);
+      if (mounted.current) setNotice("Imagem gerada e salva.");
+    });
+  };
+  const saveForAsset = async () => {
+    if (!draft) throw new Error("Abra um rascunho antes de enviar um arquivo.");
+    if (draft.post && !dirty) return draft.post;
+    const spec = { ...draft.spec, slides: draft.spec.slides.map(slide => ({ ...slide, title: slide.title.trim() || draft.spec.topic.trim() || "Novo conteúdo" })) };
+    const post = await saveBnContentPost({ ...(draft.post ? { id: draft.post.id, expected_version: draft.post.version } : {}), brief: draft.brief, spec, status: "draft" });
+    acceptPost(post);
+    return post;
+  };
+  const upload = (file: File, target: number | string) => {
+    void perform("Enviando imagem…", async () => {
+      if (!file.size || file.size > 10 * 1024 * 1024 || !["image/png", "image/jpeg"].includes(file.type)) throw new Error("Envie uma imagem PNG ou JPEG de até 10 MB.");
+      const post = await saveForAsset();
+      const asset = await uploadBnContentImage(post.id, file);
       if (!mounted.current) return;
-      const spec = { ...draft.spec, slides: draft.spec.slides.map((slide, at) => at === index ? { ...slide, background_path: result.path } : slide) };
-      setData(current => current && { ...current, assets: { ...current.assets, [result.path]: result.signedUrl } });
-      setDraft({ ...draft, spec });
-      // Keep the generated image in the editor even if the following CAS save fails.
-      acceptPost(await saveBnContentPost({ id: draft.post!.id, expected_version: draft.post!.version, brief: draft.brief, spec, status: "draft" }));
+      const spec = typeof target === "number"
+        ? { ...post.spec, slides: post.spec.slides.map((slide, at) => at === target ? { ...slide, background_path: asset.path } : slide) }
+        : { ...post.spec, references: post.spec.references?.map(ref => ref.id === target ? { ...ref, asset_path: asset.path, design: undefined } : ref) };
+      setData(previous => previous && { ...previous, assets: { ...previous.assets, [asset.path]: asset.signedUrl } });
+      setDraft({ post, brief: post.brief, spec });
+      acceptPost(await saveBnContentPost({ id: post.id, expected_version: post.version, brief: post.brief, spec, status: "draft" }));
+      setNotice("Imagem enviada e salva.");
+    });
+  };
+  const inspectReference = (id: string) => {
+    void perform("Lendo referência…", async () => {
+      const post = await saveForAsset();
+      const ref = post.spec.references?.find(item => item.id === id);
+      if (!ref) throw new Error("Referência não encontrada.");
+      const result = await inspectBnContentReference({ post_id: post.id, ...(ref.asset_path ? { path: ref.asset_path } : { url: ref.url }) });
+      if (!mounted.current) return;
+      const spec = { ...post.spec, references: post.spec.references?.map(item => item.id === id ? { ...item, asset_path: result.path, design: result.design } : item) };
+      setData(previous => previous && { ...previous, assets: { ...previous.assets, [result.path]: result.signedUrl } });
+      setDraft({ post, brief: post.brief, spec });
+      acceptPost(await saveBnContentPost({ id: post.id, expected_version: post.version, brief: post.brief, spec, status: "draft" }));
+      setNotice("Referência lida. Selecione e aplique os critérios desejados.");
+    });
+  };
+  const document = (file: File) => {
+    void perform("Lendo documento…", async () => {
+      if (!draft) return;
+      const pdf = /\.pdf$/i.test(file.name);
+      if ((!pdf && !/\.(txt|md)$/i.test(file.name)) || file.size > (pdf ? 12 * 1024 * 1024 : 100 * 1024)) throw new Error("Envie PDF de até 12 MB ou TXT/Markdown de até 100 KB.");
+      const text = pdf ? await (await import("@/lib/dietPdf")).extractDietPdfText(file) : await file.text();
+      const brief = [draft.brief, "Material de apoio", text].filter(Boolean).join("\n\n");
+      if (brief.length > 6000) throw new Error("O material e o briefing juntos excedem 6.000 caracteres. Envie um trecho menor.");
+      if (mounted.current) { setDraft({ ...draft, brief }); setNotice("Material incluído no briefing para revisão."); }
     });
   };
   const exportContent = () => {
@@ -178,7 +269,7 @@ export default function MasterBnContent() {
       <div className="flex items-center gap-2"><Button size="icon" variant="outline" title="Atualizar Studio" aria-label="Atualizar Studio" disabled={loading || Boolean(busy)} onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} /></Button><Button size="sm" disabled={!data || loading || Boolean(busy)} onClick={() => open()}><Plus />Novo rascunho</Button></div>
     </header>
     {error && <div role="alert" className="space-y-2 border-l-2 border-destructive pl-3 text-sm text-destructive"><p>{error}</p>
-      {conflict && !draft?.spec.slides.some(slide => slide.background_path) && <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => save("draft", true)}>Salvar cópia</Button>}
+      {conflict && !draft?.spec.slides.some(slide => slide.background_path) && !draft?.spec.references?.some(ref => ref.asset_path) && <Button variant="outline" size="sm" disabled={Boolean(busy)} onClick={() => save("draft", true)}>Salvar cópia</Button>}
       {!data && <Button variant="outline" size="sm" disabled={loading} onClick={() => void load()}>Tentar novamente</Button>}
     </div>}
     {(busy || notice) && <p role="status" className="flex items-center gap-2 text-sm">{busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy || notice}</p>}
@@ -195,9 +286,9 @@ export default function MasterBnContent() {
               {!data.posts.length && <p className="text-xs text-muted-foreground">Nenhum post salvo.</p>}
             </div>
           </aside>
-          <BnContentStudioEditor key={`${draft.post?.id || "new"}-${editorSession}`} draft={draft} settings={data.settings} capabilities={data.capabilities} assets={data.assets} busy={Boolean(busy) || loading} dirty={dirty} onChange={next => { setDraft(next); setNotice(""); }} onSave={save} onGenerate={generate} onImage={image} onExport={exportContent} onRevise={instruction => void perform("Revisando…", async () => {
+          <BnContentStudioEditor key={`${draft.post?.id || "new"}-${editorSession}`} draft={draft} settings={data.settings} capabilities={data.capabilities} assets={data.assets} busy={Boolean(busy) || loading} dirty={dirty} onChange={next => { setDraft(next); setNotice(""); }} onSave={save} onGenerate={generate} onImage={image} onUpload={upload} onReference={inspectReference} onDocument={document} onExport={exportContent} onRevise={instruction => void perform("Revisando…", async () => {
             const spec = await reviseBnContent(draft.spec, instruction);
-            if (mounted.current) setDraft({ ...draft, spec });
+            if (mounted.current) setDraft({ ...draft, spec: { ...spec, design: draft.spec.design, references: draft.spec.references, slides: spec.slides.map((slide, index) => ({ ...slide, design: draft.spec.slides[index]?.design, background_path: draft.spec.slides[index]?.background_path })) } });
           })} />
         </div>}
       </TabsContent>

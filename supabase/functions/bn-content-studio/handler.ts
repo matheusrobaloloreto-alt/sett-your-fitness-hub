@@ -1,3 +1,5 @@
+import { validateBnDesign } from "../_shared/bnContentDesign.ts";
+import { fetchInstagramReference, readReferenceBytes } from "./references.ts";
 import {
   BN_CONTENT_FORMATS,
   BN_CONTENT_LIMITS,
@@ -55,6 +57,8 @@ export interface StudioDependencies {
     prompt: string,
     aspect: "4:5" | "9:16",
   ): Promise<{ bytes: Uint8Array; mime: string }>;
+  inspect?(image: { bytes: Uint8Array; mime: string }): Promise<unknown>;
+  fetcher?: typeof fetch;
   uuid(): string;
 }
 
@@ -158,6 +162,7 @@ function validateGenerate(input: Record<string, unknown>): GenerateInput {
     "aesthetic",
     "objective",
     "format_key",
+    "design",
     "pillar",
   ]);
   const aes = BN_STUDIO_SETTINGS.aesthetics.find((a) =>
@@ -184,9 +189,11 @@ function validateGenerate(input: Record<string, unknown>): GenerateInput {
     input.pillar !== undefined &&
     !BN_STUDIO_SETTINGS.pillars.includes(input.pillar as string)
   ) invalid();
-  const { brief, format, audience, aesthetic, objective, format_key, pillar } =
+  if (input.design !== undefined && !validateBnDesign(input.design)) invalid();
+  const { brief, format, audience, aesthetic, objective, format_key, pillar, design } =
     input;
   return {
+    ...(design ? { design } : {}),
     brief,
     format,
     audience,
@@ -263,6 +270,26 @@ export function validateStudioImage(bytes: Uint8Array, mime: string): boolean {
     bytes.at(-2) === 255 && bytes.at(-1) === 217;
 }
 
+async function readUploadedImage(request: Request): Promise<Uint8Array> {
+  const reader = request.body?.getReader();
+  if (!reader) invalid();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > BN_CONTENT_LIMITS.imageBytes) { await reader.cancel(); throw new StudioError(413, "request_too_large"); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return bytes;
+}
+
 export function createBnContentHandler(deps: StudioDependencies) {
   return async (request: Request): Promise<Response> => {
     const origin = request.headers.get("origin");
@@ -274,7 +301,7 @@ export function createBnContentHandler(deps: StudioDependencies) {
     if (origin && studioOriginAllowed(origin)) {
       headers["Access-Control-Allow-Origin"] = origin;
       headers["Access-Control-Allow-Headers"] =
-        "authorization, apikey, content-type, x-client-info";
+        "authorization, apikey, content-type, x-client-info, x-studio-post-id";
       headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
     }
     const reply = (status: number, body: unknown) =>
@@ -298,6 +325,20 @@ export function createBnContentHandler(deps: StudioDependencies) {
       const actor = await deps.authenticate(token);
       if (!actor) throw new StudioError(401, "unauthorized");
       if (!actor.master) throw new StudioError(403, "forbidden");
+      const mime = request.headers.get("content-type") || "";
+      if (["image/png", "image/jpeg"].includes(mime)) {
+        const postId = request.headers.get("x-studio-post-id") || "";
+        if (!BN_CONTENT_UUID.test(postId)) invalid();
+        const store = deps.store();
+        if (!await store.post(postId)) throw new StudioError(404, "post_not_found");
+        const bytes = await readUploadedImage(request);
+        if (!validateStudioImage(bytes, mime)) throw new StudioError(400, "invalid_upload");
+        const path = `studio/${postId}/assets/${deps.uuid()}.png`;
+        await store.upload(path, bytes, mime);
+        const urls = await store.signedAssets([path]);
+        if (!urls[path]) throw new StudioError(500, "asset_signing_failed");
+        return reply(200, { path, signedUrl: urls[path] });
+      }
       const input = await readStudioJson(request);
       if (!bnContentRecord(input) || typeof input.action !== "string") {
         invalid();
@@ -312,11 +353,8 @@ export function createBnContentHandler(deps: StudioDependencies) {
         ]);
         const paths = [
           ...new Set(
-            posts.flatMap((p) =>
-              p.spec.slides.flatMap((s) =>
-                s.background_path ? [s.background_path] : []
-              )
-            ),
+            posts.flatMap(p => [...p.spec.slides.flatMap(s => s.background_path ? [s.background_path] : []),
+              ...(p.spec.references || []).flatMap(ref => ref.asset_path ? [ref.asset_path] : [])]),
           ),
         ];
         return reply(200, {
@@ -330,9 +368,8 @@ export function createBnContentHandler(deps: StudioDependencies) {
       if (input.action === "save") {
         const save = validateSave(input);
         const store = deps.store();
-        const paths = save.spec.slides.flatMap((s) =>
-          s.background_path ? [s.background_path] : []
-        );
+        const paths = [...save.spec.slides.flatMap(s => s.background_path ? [s.background_path] : []),
+          ...(save.spec.references || []).flatMap(ref => ref.asset_path ? [ref.asset_path] : [])];
         if (
           paths.some((path) =>
             !save.id || !path.startsWith(`studio/${save.id}/assets/`)
@@ -424,6 +461,38 @@ export function createBnContentHandler(deps: StudioDependencies) {
         const urls = await store.signedAssets([path]);
         if (!urls[path]) throw new StudioError(500, "asset_signing_failed");
         return reply(200, { path, signedUrl: urls[path] });
+      }
+      if (input.action === "reference") {
+        requireKeys(input, ["post_id", "path", "url"]);
+        if (typeof input.post_id !== "string" || !BN_CONTENT_UUID.test(input.post_id) || (!!input.path === !!input.url)) invalid();
+        if (!deps.inspect || !deps.capabilities().text) throw new StudioError(503, "text_unavailable");
+        const store = deps.store();
+        if (!await store.post(input.post_id)) throw new StudioError(404, "post_not_found");
+        if (!await store.quota(actor.id, "text")) throw new StudioError(429, "quota_exceeded");
+        let path: string;
+        let image: { bytes: Uint8Array; mime: string };
+        const fetcher = deps.fetcher || fetch;
+        if (input.path) {
+          if (typeof input.path !== "string" || !input.path.startsWith(`studio/${input.post_id}/assets/`) || !/^studio\/[0-9a-f-]{36}\/assets\/[0-9a-f-]{36}\.png$/.test(input.path)) invalid();
+          path = input.path;
+          const signed = await store.signedAssets([path]);
+          if (!signed[path]) throw new StudioError(422, "reference_unavailable");
+          const response = await fetcher(signed[path], { redirect: "error", signal: AbortSignal.timeout(15000) });
+          if (!response.ok) throw new StudioError(422, "reference_unavailable");
+          image = { bytes: await readReferenceBytes(response.body, BN_CONTENT_LIMITS.imageBytes), mime: response.headers.get("content-type")?.split(";")[0] || "" };
+          if (!validateStudioImage(image.bytes, image.mime)) throw new StudioError(422, "reference_unavailable");
+        } else {
+          if (!bnContentText(input.url, 2000)) invalid();
+          try { image = await fetchInstagramReference(input.url, fetcher); }
+          catch { throw new StudioError(422, "reference_requires_upload"); }
+          path = `studio/${input.post_id}/assets/${deps.uuid()}.png`;
+          await store.upload(path, image.bytes, image.mime);
+        }
+        const design = await deps.inspect(image);
+        if (!validateBnDesign(design)) throw new StudioError(502, "invalid_provider_response");
+        const urls = await store.signedAssets([path]);
+        if (!urls[path]) throw new StudioError(500, "asset_signing_failed");
+        return reply(200, { path, signedUrl: urls[path], design });
       }
       if (input.action === "calendar") {
         requireKeys(input, ["weeks", "posts_per_week", "focus"]);

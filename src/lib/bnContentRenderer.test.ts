@@ -16,6 +16,22 @@ describe("BN Content cloud renderer", () => {
       expect(text).toContain("Synthetic Studio");expect(text).toContain("@synthetic");expect(text).not.toContain("BN Performance Training");expect(backgrounds).toContain("#123456");
     }finally{canvas.mockRestore();blob.mockRestore();vi.stubGlobal("Image",originalImage);}
   });
+  it.each(["capa", "conteudo", "cta"] as const)("renders an associated image on %s, including light slides and CTA", async (role) => {
+    const images = vi.fn();
+    const ctx = { font: "", fillStyle: "", textBaseline: "", fillText: vi.fn(), fillRect: vi.fn(), drawImage: images, save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), clip: vi.fn(), measureText: (value: string) => ({ width: value.length * 10 }) };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["png"])));
+    vi.stubGlobal("Image", class { naturalWidth = 1080; naturalHeight = 1350; onload = () => {}; set src(_url: string) { queueMicrotask(() => this.onload()); } });
+    try {
+      await renderBnContentSlide({ format: "carrossel", aesthetic: "l1_educativo", slides: [{ role, title: "Título", body: "Texto" }] }, 0, { backgroundUrl: "https://signed.example/image.png", logoUrl: null });
+      expect(images).toHaveBeenCalledOnce();
+    } finally { vi.restoreAllMocks(); vi.unstubAllGlobals(); }
+  });
+
+  it("uses the selected dimensions, independently of the content format", () => {
+    expect(bnSlideDimensions("carrossel", { dimensions: "square" })).toEqual({ width: 1080, height: 1080 });
+    expect(bnSlideDimensions("story", { dimensions: "portrait" }).height).toBe(1350);
+  });
   it("exports fixed Instagram dimensions independently of viewport", () => {
     expect(bnSlideDimensions("carrossel")).toEqual({ width: 1080, height: 1350 });
     expect(bnSlideDimensions("story")).toEqual({ width: 1080, height: 1920 });

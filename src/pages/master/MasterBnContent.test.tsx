@@ -41,7 +41,7 @@ describe("MasterBnContent cloud", () => {
       if (body.action === "bootstrap") return { data: structuredClone(bootstrap), error: null };
       if (body.action === "save") return { data: { post: { ...post, id: body.id || "22222222-2222-4222-8222-222222222222", brief: body.brief, spec: body.spec, status: body.status, version: (body.expected_version || 0) + 1 } }, error: null };
       if (body.action === "generate" || body.action === "revise") return { data: { spec: { ...spec, slides: [{ role: "capa", title: "Conteúdo gerado" }] } }, error: null };
-      if (body.action === "image") return { data: { path: `studio/${id}/assets/33333333-3333-4333-8333-333333333333.png`, signedUrl: "https://signed.example/image.png" }, error: null };
+      if (body.action === "image") return { data: { path: `studio/${body.post_id}/assets/33333333-3333-4333-8333-333333333333.png`, signedUrl: "https://signed.example/image.png" }, error: null };
       if (body.action === "calendar") return { data: { calendar: { id: "calendar-1", calendar: { weeks: [{ week: 1, items: [{ topic: "Calendário real" }] }] }, created_at: post.created_at } }, error: null };
       throw new Error("Unexpected action");
     });
@@ -62,6 +62,29 @@ describe("MasterBnContent cloud", () => {
     expect(calls("save")[0][1].body).not.toHaveProperty("id");
     expect(calls("save")[0][1].body.spec.slides[0].title).toBe("Título manual");
     expect(screen.queryByText(/127\.0\.0\.1|neste computador|custo adicional zero/)).not.toBeInTheDocument();
+  });
+  it("saves a selected family, fonts, colors and custom dimensions", async () => {
+    render(<MasterBnContent />); await ready();
+    fireEvent.click(screen.getByRole("button", { name: /Exemplo de composição Visual/ }));
+    change("Título do slide", "Escolhas visuais");
+    fireEvent.change(screen.getByLabelText("Dimensões"), { target: { value: "square" } });
+    fireEvent.change(screen.getAllByLabelText("Fundo")[0], { target: { value: "#ffffff" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await screen.findByText("Rascunho salvo.");
+    expect(calls("save")[0][1].body.spec.design).toEqual({ family: "visual", font: "sans", dimensions: "square", background: "#ffffff" });
+  });
+  it("accepts an uploaded cover before generating content and persists its path", async () => {
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (name, options) => options.body instanceof File
+      ? { data: { path: "studio/22222222-2222-4222-8222-222222222222/assets/33333333-3333-4333-8333-333333333333.png", signedUrl: "https://signed.example/upload.png" }, error: null }
+      : original(name, options));
+    render(<MasterBnContent />); await ready();
+    const file = new File(["synthetic png"], "cover.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText(/Imagem para a capa/), { target: { files: [file] } });
+    await screen.findByText("Imagem enviada e salva.");
+    expect(calls("save")).toHaveLength(2);
+    expect(calls("save")[1][1].body.spec.slides[0].background_path).toContain("studio/22222222");
+    expect(invoke.mock.calls.find(([, options]) => options.body instanceof File)?.[1].headers).toMatchObject({ "x-studio-post-id": "22222222-2222-4222-8222-222222222222" });
   });
   it("reopens shared drafts, edits every slide field, and saves with CAS", async () => {
     render(<MasterBnContent />); await ready();
@@ -150,18 +173,68 @@ describe("MasterBnContent cloud", () => {
     expect(calls("save")).toHaveLength(0);
     expect(calls("generate")[0][1].body).toMatchObject({ format: "carrossel", format_key: "educativo", audience: "misto" });
   });
-  it("requires a saved draft for images and persists the generated background association", async () => {
-    invoke.mockResolvedValueOnce({ data: { ...bootstrap, capabilities: { text: true, images: true } }, error: null });
-    render(<MasterBnContent />); await ready(); change("Título do slide", "Manual"); change("Cena da imagem", "Athlete");
-    fireEvent.click(screen.getByRole("button", { name: "Gerar imagem" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(/Salve o rascunho/); expect(calls("image")).toHaveLength(0);
-    vi.mocked(window.confirm).mockReturnValue(true); fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Gerar imagem" }));
-    await waitFor(() => expect(calls("save")).toHaveLength(1)); await screen.findByText("Rascunho salvo.");
-    expect(calls("image")[0][1].body).toMatchObject({ post_id: id, slide_index: 0, aspect: "4:5" });
-    expect(calls("save")[0][1].body.spec.slides[0].background_path).toContain(`studio/${id}/assets/`);
-    expect(screen.queryByRole("button", { name: "Salvar como novo rascunho" })).not.toBeInTheDocument();
+  it("generates and associates images sequentially after creating text", async () => {
+    invoke.mockImplementation(async (_name, { body }) => {
+      if (body.action === "bootstrap") return { data: { ...structuredClone(bootstrap), capabilities: { text: true, images: true } }, error: null };
+      if (body.action === "generate") return { data: { spec }, error: null };
+      if (body.action === "save") return { data: { post: { ...post, brief: body.brief, spec: body.spec, status: body.status, version: (body.expected_version || 0) + 1 } }, error: null };
+      if (body.action === "image") return { data: { path: `studio/${id}/assets/33333333-3333-4333-8333-333333333333.png`, signedUrl: "https://signed.example/image.png" }, error: null };
+      throw new Error("Unexpected action");
+    });
+    render(<MasterBnContent />); await ready(); change("Briefing", "Criar carrossel com foto");
+    fireEvent.click(screen.getByRole("button", { name: "Gerar conteúdo" }));
+    await screen.findByText("Conteúdo e imagens gerados e salvos.");
+    expect(invoke.mock.calls.map(([, options]) => options.body.action)).toEqual(["bootstrap", "generate", "save", "image", "save"]);
+    expect(calls("save")[1][1].body.spec.slides[0].background_path).toContain("studio/");
   });
+  it("saves unsaved edits before generating and persists the image with the new version", async () => {
+    invoke.mockResolvedValueOnce({ data: { ...bootstrap, capabilities: { text: true, images: true } }, error: null });
+    render(<MasterBnContent />); await ready();
+    fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
+    change("Título do slide", "Manual"); change("Cena da imagem", "Athlete");
+    fireEvent.click(screen.getByRole("button", { name: "Gerar imagem" }));
+    await waitFor(() => expect(calls("save")).toHaveLength(2));
+    await screen.findByText("Imagem gerada e salva.");
+    expect(calls("save")[0][1].body).toMatchObject({ id, expected_version: 1, spec: { slides: [{ title: "Manual" }] } });
+    expect(calls("save")[1][1].body).toMatchObject({ id, expected_version: 2, spec: { slides: [{ background_path: expect.stringContaining("studio/") }] } });
+    expect(calls("image")).toHaveLength(1);
+  });
+  it("does not call the image provider when the preceding save conflicts", async () => {
+    invoke.mockResolvedValueOnce({ data: { ...bootstrap, capabilities: { text: true, images: true } }, error: null });
+    render(<MasterBnContent />); await ready();
+    fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
+    change("Título do slide", "Edição preservada");
+    invoke.mockResolvedValueOnce({ data: null, error: { context: { status: 409, json: async () => ({ error: "version_conflict" }) } } });
+    fireEvent.click(screen.getByRole("button", { name: "Gerar imagem" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Outro Master/);
+    expect(calls("image")).toHaveLength(0);
+    expect(screen.getByLabelText("Título do slide")).toHaveValue("Edição preservada");
+  });
+
+  it("retains the generated image locally when its association save conflicts", async () => {
+    invoke.mockResolvedValueOnce({ data: { ...bootstrap, capabilities: { text: true, images: true } }, error: null });
+    render(<MasterBnContent />); await ready();
+    fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
+    const original = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (name, options) => options.body.action === "save"
+      ? { data: null, error: { context: { status: 409, json: async () => ({ error: "version_conflict" }) } } }
+      : original(name, options));
+    fireEvent.click(screen.getByRole("button", { name: "Gerar imagem" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Outro Master/);
+    expect(screen.getByRole("button", { name: "Remover imagem" })).toBeEnabled();
+    expect(calls("image")).toHaveLength(1);
+    expect(screen.queryByText("Imagem gerada e salva.")).not.toBeInTheDocument();
+  });
+  it("prevents a repeated image click from submitting two provider requests", async () => {
+    invoke.mockResolvedValueOnce({ data: { ...bootstrap, capabilities: { text: true, images: true } }, error: null });
+    render(<MasterBnContent />); await ready();
+    fireEvent.click(screen.getByRole("button", { name: /Força compartilhada/ }));
+    const button = screen.getByRole("button", { name: "Gerar imagem" });
+    fireEvent.click(button); fireEvent.click(button);
+    await screen.findByText("Imagem gerada e salva.");
+    expect(calls("image")).toHaveLength(1);
+  });
+
   it("announces approval only after positive ACK and downloads one ZIP with every PNG, caption and JSON", async () => {
     const exportSpec = { ...spec, slides: [spec.slides[0], { role: "cta" as const, title: "Próximo passo" }] };
     invoke.mockResolvedValueOnce({ data: { ...bootstrap, posts: [{ ...post, spec: exportSpec }] }, error: null });

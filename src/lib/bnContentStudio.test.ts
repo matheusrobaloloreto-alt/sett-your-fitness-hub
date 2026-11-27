@@ -31,6 +31,11 @@ describe("BN Content cloud service", () => {
     expect(await saveBnContentPost({ id, expected_version: 1, brief: "Força", spec, status: "draft" })).toMatchObject({ version: 2 });
     expect(invoke.mock.calls[0][1].body).toMatchObject({ id, expected_version: 1 });
   });
+  it("accepts reordered JSONB keys inside visual options and references", async () => {
+    const visual: BnContentSpec = { ...spec, design: { family: "visual", font: "sans", background: "#ffffff" }, references: [{ id: "ref", url: "", criteria: ["font"], design: { font: "serif", align: "center" } }] };
+    invoke.mockResolvedValue({ data: { post: { ...post, spec: { ...visual, design: { background: "#ffffff", font: "sans", family: "visual" }, references: [{ design: { align: "center", font: "serif" }, criteria: ["font"], url: "", id: "ref" }] } } }, error: null });
+    await expect(saveBnContentPost({ brief: "Força", spec: visual, status: "draft" })).resolves.toMatchObject({ id });
+  });
   it.each([
     { data: {}, error: null },
     { data: { post: { ...post, status: "approved" } }, error: null },

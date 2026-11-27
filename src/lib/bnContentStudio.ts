@@ -5,13 +5,19 @@ import { isBnContentAssetPath, validateBnContentSpec } from "../../supabase/func
 
 export type { BnContentSpec, BnStudioPost, BnStudioCalendar, BnStudioBootstrap, BnStudioSettings };
 
+import { validateBnDesign, validateBnReferences } from "../../supabase/functions/_shared/bnContentDesign";
+import type { BnDesign, BnReference } from "../../supabase/functions/_shared/bnContentDesign";
+export type { BnDesign, BnReference };
+const designSchema = z.custom<BnDesign>(validateBnDesign);
 const text = z.string();
 const slideSchema = z.object({
+  design: designSchema.optional(),
   role: z.enum(["capa", "conteudo", "cta"]), title: text.trim().min(1),
   subtitle: text.optional(), body: text.optional(), bullets: z.array(text).optional(),
   image_scene: text.optional(), background_path: text.optional(),
 });
 export const bnContentSpecSchema = z.object({
+  design: designSchema.optional(), references: z.custom<BnReference[]>(validateBnReferences).optional(),
   format: text.min(1), aesthetic: text.min(1), topic: text, audience: text,
   slides: z.array(slideSchema).min(1).max(20), caption: text, hashtags: z.array(text),
 }).strict().refine(validateBnContentSpec);
@@ -45,10 +51,10 @@ export class BnContentStudioError extends Error {
   }
 }
 
-async function request<T>(body: Record<string, unknown>, schema: z.ZodTypeAny): Promise<T> {
+async function request<T>(body: Record<string, unknown> | Blob, schema: z.ZodTypeAny, headers?: Record<string, string>): Promise<T> {
   let result: Awaited<ReturnType<typeof supabase.functions.invoke>>;
   try {
-    result = await supabase.functions.invoke("bn-content-studio", { body });
+    result = await supabase.functions.invoke("bn-content-studio", { body, ...(headers ? { headers } : {}) });
   } catch {
     throw new BnContentStudioError("Não foi possível conectar ao BN Content. Tente novamente.");
   }
@@ -68,10 +74,18 @@ async function request<T>(body: Record<string, unknown>, schema: z.ZodTypeAny): 
       503: "A geração está indisponível. Você pode continuar editando e salvando manualmente.",
     };
     const codeMessages: Record<string, string> = {
+      reference_requires_upload: "O link não forneceu uma imagem acessível. Envie um print do slide que deseja usar como referência.",
+      reference_unavailable: "Não foi possível abrir a referência. Envie novamente a imagem.",
+      invalid_upload: "O arquivo não é uma imagem PNG ou JPEG válida.",
+      request_too_large: "O arquivo excede o tamanho permitido.",
       invalid_request: "Revise os campos do conteúdo antes de continuar.",
       post_not_found: "Post não encontrado. Atualize a lista de posts.",
       invalid_provider_response: "A geração retornou conteúdo inválido. Sua edição foi preservada.",
       save_failed: "O servidor não confirmou o salvamento. Sua edição foi preservada.",
+      images_unavailable: "A geração de imagens está indisponível no servidor. Sua edição foi preservada.",
+      invalid_provider_image: "O gerador não retornou uma imagem válida. Tente gerar novamente.",
+      asset_signing_failed: "A imagem foi criada, mas não pôde ser aberta. Atualize o Studio.",
+      request_timeout: "O gerador demorou para responder. Sua edição foi preservada.",
       calendar_save_failed: "O servidor não confirmou o calendário. Tente novamente.",
     };
     // Never surface raw provider errors, URLs, headers, or credentials to the UI.
@@ -91,18 +105,24 @@ function normalizeDraftSpec(input: BnContentSpec): BnContentSpec {
   };
 }
 
+function canonicalJson(value: unknown): string {
+  const normalize = (item: unknown): unknown => Array.isArray(item) ? item.map(normalize)
+    : item !== null && typeof item === "object" ? Object.fromEntries(Object.entries(item).filter(([, entry]) => entry !== undefined).sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, normalize(entry)])) : item;
+  return JSON.stringify(normalize(value));
+}
+
 export async function saveBnContentPost(input: SaveBnContentInput): Promise<BnStudioPost> {
   const spec = normalizeDraftSpec(input.spec);
   const brief = input.brief.trim() || spec.topic;
   if (!bnContentSpecSchema.safeParse(spec).success || brief.length > 6000) throw new BnContentStudioError("Revise os títulos, textos e hashtags antes de salvar.");
-  if (!input.id && spec.slides.some(slide => slide.background_path)) throw new BnContentStudioError("Este post contém imagens vinculadas ao original. Exporte a edição antes de reabrir a versão atual.");
+  if (!input.id && (spec.slides.some(slide => slide.background_path) || spec.references?.some(ref => ref.asset_path))) throw new BnContentStudioError("Este post contém imagens vinculadas ao original. Exporte a edição antes de reabrir a versão atual.");
   const { post } = await request<{ post: BnStudioPost }>({ action: "save", ...input, brief, spec }, z.object({ post: postSchema }));
-  if ((input.id && post.id !== input.id) || post.status !== input.status || post.version !== (input.expected_version === undefined ? 1 : input.expected_version + 1) || post.brief !== brief || JSON.stringify(bnContentSpecSchema.parse(post.spec)) !== JSON.stringify(bnContentSpecSchema.parse(spec))) {
+  if ((input.id && post.id !== input.id) || post.status !== input.status || post.version !== (input.expected_version === undefined ? 1 : input.expected_version + 1) || post.brief !== brief || canonicalJson(bnContentSpecSchema.parse(post.spec)) !== canonicalJson(bnContentSpecSchema.parse(spec))) {
     throw new BnContentStudioError("O servidor não confirmou o salvamento solicitado. Sua edição foi preservada.", "response");
   }
   return post;
 }
-export async function generateBnContent(input: { brief: string; format: string; audience: string; aesthetic: string; objective?: string; format_key?: string; pillar?: string }): Promise<BnContentSpec> {
+export async function generateBnContent(input: { design?: BnDesign; brief: string; format: string; audience: string; aesthetic: string; objective?: string; format_key?: string; pillar?: string }): Promise<BnContentSpec> {
   return (await request<{ spec: BnContentSpec }>({ action: "generate", ...input }, z.object({ spec: bnContentSpecSchema }))).spec;
 }
 export async function reviseBnContent(spec: BnContentSpec, instruction: string): Promise<BnContentSpec> {
@@ -121,3 +141,14 @@ export function newBnContentSpec(settings: BnStudioSettings): BnContentSpec {
     slides: [{ role: "capa", title: "" }], caption: "", hashtags: [],
   } as BnContentSpec;
 }
+
+export async function uploadBnContentImage(postId: string, file: File) {
+  if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 10 * 1024 * 1024 || !file.size) throw new Error("Envie uma imagem PNG ou JPEG de até 10 MB.");
+  return request<{ path: string; signedUrl: string }>(file,
+    z.object({ path: text.refine(path => isBnContentAssetPath(path) && path.startsWith(`studio/${postId}/assets/`)), signedUrl }),
+    { "Content-Type": file.type, "x-studio-post-id": postId });
+}
+
+export const inspectBnContentReference = (input: { post_id: string; url?: string; path?: string }) =>
+  request<{ path: string; signedUrl: string; design: BnDesign }>({ action: "reference", ...input },
+    z.object({ path: text.refine(path => isBnContentAssetPath(path) && path.startsWith(`studio/${input.post_id}/assets/`)), signedUrl, design: designSchema }));

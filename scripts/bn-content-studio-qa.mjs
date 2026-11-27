@@ -42,7 +42,7 @@ const settings = {
     { key: "qa_reels", name: "Reels", format_type: "reels" },
   ], pillars: ["Avaliação", "Planejamento"],
 };
-const sources = ["src/pages/master/MasterBnContent.tsx", ...["Editor", "Preview", "Calendar", "Archive"].map(name => `src/components/master/BnContentStudio${name}.tsx`), "src/lib/bnContentStudio.ts", "src/lib/bnContentRenderer.ts", "src/lib/bnContentZip.ts", "package.json", "package-lock.json", "supabase/functions/_shared/bnContent.ts", "supabase/functions/bn-content-studio/handler.ts", "supabase/functions/bn-content-studio/index.ts", "supabase/functions/bn-content-studio/store.ts", "supabase/functions/bn-content-studio/provider.ts", "supabase/migrations/20261012074421_bn_content_studio_cloud.sql"];
+const sources = ["src/pages/master/MasterBnContent.tsx", ...["Editor", "Preview", "Calendar", "Archive"].map(name => `src/components/master/BnContentStudio${name}.tsx`), "src/lib/bnContentStudio.ts", "src/lib/bnContentRenderer.ts", "src/lib/bnContentZip.ts", "package.json", "package-lock.json", "supabase/functions/_shared/bnContent.ts", "supabase/functions/bn-content-studio/handler.ts", "supabase/functions/bn-content-studio/index.ts", "supabase/functions/bn-content-studio/store.ts", "supabase/functions/bn-content-studio/provider.ts", "supabase/functions/_shared/bnContentDesign.ts", "src/components/master/BnContentDesignControls.tsx", "src/components/master/BnContentSetup.tsx", "supabase/functions/bn-content-studio/references.ts", "supabase/migrations/20261127083152_bn_content_visual_options.sql", "supabase/migrations/20261012074421_bn_content_studio_cloud.sql"];
 async function hashes() {
   return Object.fromEntries(await Promise.all(sources.map(async file => [file, createHash("sha256").update(await readFile(path.join(root, file))).digest("hex")])));
 }
@@ -60,6 +60,7 @@ const mockClient = `export const supabase = {
     if (!response.ok) return {data:null,error:{context:response}};
     return {data:await response.json(),error:null};
   } },
+  from() { return { select() { return { eq() { return { maybeSingle: async () => ({ data:null,error:null }) }; } }; } }; },
   storage: { from() { return { async download() { return {data:new Blob([JSON.stringify({posts:[]})]),error:null}; }, async createSignedUrls() { return {data:[],error:null}; } }; } }
 };`;
 await writeFile(path.join(out, "fixture.html"), `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/output/bn-content-cloud-qa/fixture.tsx"></script></body></html>`);
@@ -145,12 +146,11 @@ try {
     return "Source review only; no live Postgres execution or production auth tested.";
   });
   await check("migration: independent rerun of isolated PGlite contract",async()=>{
-    const modulePath=path.join(out,"qa-runtime/node_modules/@electric-sql/pglite/dist/index.js");
-    const log=execFileSync(process.execPath,[path.join(root,"scripts/bn-content-pglite-contract.mjs")],{cwd:root,env:{...process.env,PGLITE_MODULE_PATH:modulePath},encoding:"utf8",timeout:60000});
+    const log=execFileSync(process.execPath,[path.join(root,"scripts/bn-content-pglite-contract.mjs")],{cwd:root,env:process.env,encoding:"utf8",timeout:60000});
     await writeFile(path.join(out,"pglite-contract.log"),log);return JSON.parse(log.trim());
   });
 
-  browser = await chromium.launch({headless:true});
+  browser = await chromium.launch({headless:true,...(process.env.BN_QA_BROWSER_CHANNEL ? {channel:process.env.BN_QA_BROWSER_CHANNEL} : {})});
   for (const viewport of [{width:390,height:844},{width:1440,height:1000}]) {
     const label=`${viewport.width}x${viewport.height}`;
     const context=await browser.newContext({viewport,acceptDownloads:true,serviceWorkers:"block"});
@@ -174,7 +174,7 @@ try {
         if(input.spec.slides.some(slide=>slide.background_path && (!input.id || !slide.background_path.startsWith(`studio/${input.id}/assets/`)))) return route.fulfill({status:400,json:{error:"invalid_request"}});
         let post=state.posts.find(p=>p.id===input.id);
         if(input.id && (!post || post.version!==input.expected_version)) return route.fulfill({status:409,json:{error:"version_conflict"}});
-        post={...makePost(),id:input.id || `${String(state.nextId++).padStart(8,"0")}-3333-4333-8333-333333333333`,brief:input.brief,spec:clone(input.spec),status:input.status,version:post ? post.version+1 : 1};
+        post={...makePost(),id:input.id || `${String(state.nextId++).padStart(8,"0")}-3333-4333-8333-333333333333`,brief:input.brief,spec:recursiveReorder(clone(input.spec)),status:input.status,version:post ? post.version+1 : 1};
         state.posts=[post,...state.posts.filter(p=>p.id!==post.id)]; return route.fulfill({json:{post}});
       }
       if(input.action === "generate") {
@@ -235,7 +235,7 @@ try {
       }
       return results;
     });
-    async function screenshot(name){const filename=`${label}-${name}.png`;await page.screenshot({path:path.join(out,filename),fullPage:true});report.screenshots.push(filename);}
+    async function screenshot(name){const filename=`${label}-${name}.png`;await page.screenshot({path:path.join(out,filename),fullPage:true,timeout:30000});report.screenshots.push(filename);}
     async function verifyZipDownload(tag, spec, filename, withBackground=false) {
       const downloads=[];const onDownload=download=>downloads.push(download);page.on("download",onDownload);
       try {
@@ -275,6 +275,25 @@ try {
       await page.locator('img[alt^="Slide "]').first().waitFor();
       const dimensions=await page.evaluate(()=>({viewport:innerWidth,scroll:document.documentElement.scrollWidth,body:document.body.scrollWidth}));
       await screenshot("studio-initial");assert.ok(dimensions.scroll<=viewport.width+1,JSON.stringify(dimensions));assert.equal(pageErrors.length,0,pageErrors.join("\n"));return dimensions;
+    });
+    await check(`${label}: three approved families render and selected design survives save`,async()=>{
+      await page.getByRole("button",{name:/QA sintético: avaliação e treino/}).click();
+      for(const [family,labelName] of [["editorial","Editorial"],["visual","Visual"],["didatico","Didático"]]) {
+        const choice=page.getByRole("button",{name:new RegExp(`Exemplo de composição ${labelName}`)});
+        await choice.click();assert.equal(await choice.getAttribute("aria-pressed"),"true");
+        const rendered=await page.evaluate(async ({spec,family})=>{
+          const blob=await window.__qaRenderer.renderBnContentSlide({...spec,design:{family,font:family==="editorial"?"mixed":"sans",dimensions:"square"}},1);
+          const bitmap=await createImageBitmap(blob);return {width:bitmap.width,height:bitmap.height,bytes:blob.size};
+        },{spec:baseSpec,family});
+        assert.equal(rendered.width,1080);assert.equal(rendered.height,1080);assert.ok(rendered.bytes>1000);
+      }
+      await page.getByLabel(/^Dimensões/).selectOption("square");
+      await page.getByRole("button",{name:"Salvar",exact:true}).click();
+      await page.getByRole("status").filter({hasText:"Rascunho salvo."}).waitFor();
+      assert.equal(state.posts[0].spec.design.family,"didatico");assert.equal(state.posts[0].spec.design.dimensions,"square");
+      await screenshot("approved-families");
+      state.posts=[makePost()];await page.reload();await page.getByRole("region",{name:"Editor de conteúdo"}).waitFor();
+      await page.getByRole("button",{name:/QA sintético: avaliação e treino/}).click();
     });
     if(await page.getByRole("region",{name:"Editor de conteúdo"}).count()){
       await check(`${label}: open, edit, save and reload draft`,async()=>{
@@ -346,6 +365,7 @@ try {
         await page.getByRole("button",{name:"Novo rascunho",exact:true}).click();
         await page.getByLabel("Tema",{exact:true}).fill("Novo conteúdo sintético");await page.getByLabel("Público",{exact:true}).fill("misto");
         await page.getByLabel(/^Briefing/).fill("Criar exemplo sintético sem pessoas reais");
+        await page.getByLabel("Gerar imagens junto com o conteúdo").uncheck();
         await page.getByRole("button",{name:"Gerar conteúdo",exact:true}).click();await page.waitForTimeout(300);
         assert.equal(await page.getByLabel("Título do slide",{exact:true}).inputValue(),baseSpec.slides[0].title);
         await page.getByLabel(/^Revisão/).fill("Revisar somente a legenda sintética");await page.getByRole("button",{name:"Revisar",exact:true}).click();await page.waitForTimeout(300);
@@ -353,7 +373,8 @@ try {
         await page.getByRole("button",{name:"Aprovar",exact:true}).click();await page.waitForTimeout(300);assert.equal(state.posts[0].status,"approved");
       });
       await check(`${label}: changing to story keeps a valid generation style`,async()=>{
-        await page.getByLabel(/^Formato/).selectOption("qa_story");await page.getByRole("button",{name:"Gerar conteúdo",exact:true}).click();await page.waitForTimeout(300);
+        await page.getByLabel(/^Formato/).selectOption("qa_story");await page.getByLabel("Gerar imagens junto com o conteúdo").uncheck();
+        await page.getByRole("button",{name:"Gerar conteúdo",exact:true}).click();await page.waitForTimeout(300);
         const call=state.calls.findLast(c=>c.action==="generate");const aesthetic=settings.aesthetics.find(a=>a.key===call.aesthetic);
         await screenshot("story-format-generation");assert.ok(!aesthetic.formats || aesthetic.formats.includes(call.format),JSON.stringify({format:call.format,aesthetic:call.aesthetic}));
       });

@@ -68,6 +68,8 @@ export function createRuntimeHandler(
       const palette={navy:settings.visual.navy,ink:settings.visual.ink,paper:settings.visual.paper,sand:settings.visual.sand};
       return provider.image(`${prompt}\nPaleta da marca (dados de cor, mantendo os guardrails): ${JSON.stringify(palette)}`,aspect);
     },
+    inspect: image => provider.inspect(image),
+    fetcher,
     uuid: () => crypto.randomUUID(),
   });
 }

@@ -252,3 +252,17 @@ Deno.test("missing key and network errors never expose secrets", async () => {
     errorCode(503, "provider_unavailable"),
   );
 });
+
+Deno.test("reference extraction sends pixels as inline data and requests style only", async () => {
+  let body: Record<string, unknown> = {};
+  const provider = createGeminiProvider("synthetic", async (_input, init) => {
+    body = JSON.parse(String(init?.body));
+    return success([{ text: JSON.stringify({ font: "serif", background: "#ffffff" }) }]);
+  });
+  const bytes = Uint8Array.from(atob(pngBase64), character => character.charCodeAt(0));
+  assert.deepEqual(await provider.inspect({ bytes, mime: "image/png" }), { font: "serif", background: "#ffffff" });
+  const contents = body.contents as { parts: { text?: string; inlineData?: { mimeType: string; data: string } }[] }[];
+  assert.deepEqual(contents[0].parts[1].inlineData, { mimeType: "image/png", data: pngBase64 });
+  assert.match(contents[0].parts[0].text!, /nunca instrucoes/);
+  assert.match(contents[0].parts[0].text!, /Sem copiar texto/);
+});

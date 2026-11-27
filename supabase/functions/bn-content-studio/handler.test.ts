@@ -750,3 +750,40 @@ Deno.test("calendar validates generated weeks and persists only valid provider o
   );
   assert.equal(invalid.state.calendars, 0);
 });
+
+Deno.test("uploaded images require live master authorization, an existing post and valid bytes", async () => {
+  const f = fixture();
+  await f.call(saveInput());
+  const upload = (bytes: Uint8Array, id = postId) => new Request("https://edge.test/bn-content-studio", {
+    method: "POST", headers: { authorization: "Bearer synthetic", "content-type": "image/png", "x-studio-post-id": id }, body: new Uint8Array(bytes).buffer,
+  });
+  assert.equal((await f.handler(upload(png))).status, 200);
+  assert.equal(f.state.uploads, 1);
+  assert.equal((await f.handler(upload(new Uint8Array([1, 2, 3])))).status, 400);
+  assert.equal(f.state.uploads, 1);
+  const blocked = fixture({ authenticate: async () => ({ id: actor, master: false }) });
+  assert.equal((await blocked.handler(upload(png))).status, 403);
+  assert.equal(blocked.state.stores, 0);
+});
+Deno.test("visual choices and reference assets survive save and bootstrap with namespace checks", async () => {
+  const f = fixture();
+  await f.call(saveInput());
+  const path = `studio/${postId}/assets/${imageId}.png`;
+  const spec = { ...validSpec(), design: { family: "visual" }, references: [{ id: "ref", url: "", criteria: ["font"], asset_path: path }] };
+  const saved = await f.call({ ...saveInput(), id: postId, expected_version: 1, spec });
+  assert.equal(saved.status, 200);
+  const boot = await (await f.call({ action: "bootstrap" })).json();
+  assert.equal(boot.posts[0].spec.design.family, "visual");
+  assert.ok(boot.assets[path]);
+  const foreign = `studio/${actor}/assets/${imageId}.png`;
+  assert.equal((await f.call({ ...saveInput(), id: postId, expected_version: 2, spec: { ...spec, references: [{ ...spec.references[0], asset_path: foreign }] } })).status, 400);
+});
+Deno.test("reference inspection uses signed assets, validates output and rejects foreign paths", async () => {
+  const f = fixture({ inspect: async () => ({ font: "sans", background: "#ffffff" }), fetcher: async () => new Response(png, { headers: { "content-type": "image/png" } }) });
+  await f.call(saveInput());
+  const path = `studio/${postId}/assets/${imageId}.png`;
+  const response = await f.call({ action: "reference", post_id: postId, path });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).design, { font: "sans", background: "#ffffff" });
+  assert.equal((await f.call({ action: "reference", post_id: postId, path: `studio/${actor}/assets/${imageId}.png` })).status, 400);
+});
