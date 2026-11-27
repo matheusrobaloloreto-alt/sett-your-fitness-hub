@@ -67,4 +67,3 @@ Integração isolada refeita diretamente sobre a produção `5b357d57880d160d01d
 - Conta master, posts, assets, cota e chave de provedor criados exclusivamente para a homologação são removidos ao terminar. A estrutura BN Content permanece no staging com o histórico das migrações registrado; geração de staging volta a ficar indisponível sem chave, como estava antes desta execução.
 
 As verificações foram feitas pelo executor e por testes automatizados; não houve revisor humano externo ou subagente. Não há falha funcional conhecida restante nestes testes; isso não é garantia de ausência absoluta de bugs. Uso real e links externos sujeitos a restrição do Instagram continuam conforme as limitações documentadas.
-
