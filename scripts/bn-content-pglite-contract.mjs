@@ -130,6 +130,7 @@ try {
   )).rows;
   await db.exec(await readFile(migration, "utf8"));
   await db.exec(await readFile(new URL("../supabase/migrations/20261127083152_bn_content_visual_options.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/migrations/20261127093916_bn_content_nonretryable_version_conflict.sql", import.meta.url), "utf8"));
   const visual = { ...spec, design: { family: "visual", font: "sans", dimensions: "square" }, references: [{ id: "a", url: "https://www.instagram.com/p/demo/", criteria: ["font"], design: { font: "serif" } }] };
   assert.equal((await db.query("select public.bn_content_spec_valid($1::jsonb) valid", [JSON.stringify(visual)])).rows[0].valid, true);
   assert.equal((await db.query("select public.bn_content_spec_valid($1::jsonb) valid", [JSON.stringify({ ...visual, design: { family: "invalid" } })])).rows[0].valid, false);
@@ -260,7 +261,7 @@ try {
     save(master2, first.id, 2),
   ]);
   assert.equal(race.filter((r) => r.status === "fulfilled").length, 1);
-  assert.equal(race.find((r) => r.status === "rejected").reason.code, "40001");
+  assert.equal(race.find((r) => r.status === "rejected").reason.code, "PT409");
   const afterRace = (await db.query(
     "select version from public.bn_content_studio_posts where id=$1",
     [first.id],
@@ -268,7 +269,7 @@ try {
   assert.equal(afterRace.version, 3);
   await assert.rejects(
     () => save(master1, first.id, 1),
-    (e) => e.code === "40001",
+    (e) => e.code === "PT409",
   );
   checks += 7;
 

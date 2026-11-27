@@ -340,6 +340,8 @@ Deno.test("CORS accepts only exact production, site previews, localhost and auth
   for (
     const origin of [
       "https://www.settapp.com.br",
+      "https://sett-bn-staging-20260815.netlify.app",
+      "https://6b094d563e075453d6b264bd--sett-bn-staging-20260815.netlify.app",
       "https://settapp.com.br",
       "http://localhost:8080",
       "https://deploy-preview-123--bn-performance-webapp-matheus.netlify.app",

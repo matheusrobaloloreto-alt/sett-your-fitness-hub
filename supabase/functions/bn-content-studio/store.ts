@@ -14,7 +14,7 @@ const bucket = "bn-content-studio";
 function databaseError(error: unknown) {
   if (!error) return;
   const code = bnContentRecord(error) ? error.code : undefined;
-  if (code === "40001") throw new StudioError(409, "version_conflict");
+  if (code === "PT409" || code === "40001") throw new StudioError(409, "version_conflict");
   if (code === "42501") throw new StudioError(403, "forbidden");
   if (code === "22023" || code === "23514") {
     throw new StudioError(400, "invalid_request");

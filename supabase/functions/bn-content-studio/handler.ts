@@ -67,10 +67,11 @@ export function studioOriginAllowed(origin: string): boolean {
     "https://www.settapp.com.br",
     "https://settapp.com.br",
     "https://bn-performance-webapp-matheus.netlify.app",
+    "https://sett-bn-staging-20260815.netlify.app",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
   ].includes(origin) ||
-    /^https:\/\/(?:deploy-preview-[1-9][0-9]*|[a-f0-9]{24})--bn-performance-webapp-matheus\.netlify\.app$/
+    /^https:\/\/(?:deploy-preview-[1-9][0-9]*|[a-f0-9]{24})--(?:bn-performance-webapp-matheus|sett-bn-staging-20260815)\.netlify\.app$/
       .test(origin);
 }
 

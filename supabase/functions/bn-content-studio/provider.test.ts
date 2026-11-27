@@ -266,3 +266,23 @@ Deno.test("reference extraction sends pixels as inline data and requests style o
   assert.match(contents[0].parts[0].text!, /nunca instrucoes/);
   assert.match(contents[0].parts[0].text!, /Sem copiar texto/);
 });
+
+Deno.test("large inline reference uses the full byte range without character-array expansion", async () => {
+  const bytes = new Uint8Array(4 * 1024 * 1024).fill(124);
+  let sent = "";
+  const provider = createGeminiProvider("synthetic", async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    sent = body.contents[0].parts[1].inlineData.data;
+    return success([{ text: JSON.stringify({ background: "#ffffff" }) }]);
+  });
+  await provider.inspect({ bytes, mime: "image/png" });
+  const decoded = atob(sent);
+  assert.equal(decoded.length, bytes.length);
+  assert.equal(decoded.charCodeAt(0), 124);
+  assert.equal(decoded.charCodeAt(decoded.length - 1), 124);
+});
+
+Deno.test("unobservable style fields and object descriptions are not imported as visual choices", async () => {
+  const provider = createGeminiProvider("synthetic", async () => success([{ text: JSON.stringify({ font: null, background: "#ffffff", symbols: "Barbell rack" }) }]));
+  assert.deepEqual(await provider.inspect({ bytes: new Uint8Array([1]), mime: "image/png" }), { background: "#ffffff" });
+});

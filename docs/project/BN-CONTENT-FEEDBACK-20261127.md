@@ -42,3 +42,18 @@ Revisão de diff feita pelo próprio executor. Não houve revisor externo ou sub
 4. Publicar o frontend correspondente e confirmar autenticação master e URLs assinadas.
 5. Gerar um conteúdo sintético com cada família, testar imagem e print reais, salvar/reabrir e comparar ZIP/prévia.
 6. Só promover após QA e autorização. Para rollback de runtime, restaurar frontend/função anteriores preservando a validação ampliada no banco: ela aceita conteúdo legado e evita invalidar posts novos. Não remover os campos novos dos posts nem executar migração destrutiva.
+
+## Homologação e publicação autorizadas — 27/11/2026
+
+Integração isolada refeita diretamente sobre a produção `5b357d57880d160d01d38b056e95374461e060d1` na branch `codex/bn-content-production-20261127`; apenas BN Content e a versão do cache do service worker foram incluídos. Checkout internacional e demais mudanças posteriores à produção foram excluídos.
+
+- Testes na base de produção: 70 frontend, 50 Edge/provider/referências, 70 verificações PGlite; TypeScript e build aprovados.
+- Staging real: três famílias com imagens geradas pelo provedor, upload privado, extração visual e reabertura autenticada do rascunho aprovados. A chave de teste tem o mesmo fingerprint da chave de BN Content já configurada em produção; não houve rotação de produção.
+- Navegador hospedado real: 1440 e 390 px, login sintético master, salvar/recarregar/exportar ZIP aprovados; zero erros de página e sem overflow horizontal. Evidências locais em `output/bn-content-hosted-browser-report.json`.
+- Corrigido conflito de versão que usava SQLSTATE 40001 e provocava retries infinitos no PostgREST hospedado; a nova migração usa PT409 e mantém a autorização master e o incremento atômico de versão. Ver [explicação oficial do Supabase](https://supabase.com/kb/troubleshooting/high-cpu-and-infinite-transaction-retries-when-using-custom-error-codes-in-rpc-functions-77326b).
+- Conversão base64 de imagens trocada por Buffer para evitar expansão em arrays de caracteres. Referências sem texto omitem campos não observáveis; símbolos não importam descrições de objetos.
+- CORS inclui somente os domínios explícitos de produção/homologação e seus previews válidos; origens desconhecidas continuam bloqueadas.
+- Service worker passa de cache v19 para v20; mantém o fallback entre gerações existente.
+- Antes da produção: dois posts, checksum `1efa47c740de27271dc12bd47c442f29`. Função remota e definição do validador foram respaldadas fora dos arquivos versionados. Corpo da RPC de produção conferido contra a base revisada antes da substituição.
+
+Publicação ainda depende da conclusão dos passos remotos e da conferência final abaixo.
