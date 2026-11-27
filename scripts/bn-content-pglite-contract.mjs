@@ -129,8 +129,8 @@ try {
     "select * from storage.buckets where id='bn-content-archive'",
   )).rows;
   await db.exec(await readFile(migration, "utf8"));
-  await db.exec(await readFile(new URL("../supabase/migrations/20261127083152_bn_content_visual_options.sql", import.meta.url), "utf8"));
-  await db.exec(await readFile(new URL("../supabase/migrations/20261127093916_bn_content_nonretryable_version_conflict.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/migrations/20261127095011_bn_content_visual_options.sql", import.meta.url), "utf8"));
+  await db.exec(await readFile(new URL("../supabase/migrations/20261127095014_bn_content_nonretryable_version_conflict.sql", import.meta.url), "utf8"));
   const visual = { ...spec, design: { family: "visual", font: "sans", dimensions: "square" }, references: [{ id: "a", url: "https://www.instagram.com/p/demo/", criteria: ["font"], design: { font: "serif" } }] };
   assert.equal((await db.query("select public.bn_content_spec_valid($1::jsonb) valid", [JSON.stringify(visual)])).rows[0].valid, true);
   assert.equal((await db.query("select public.bn_content_spec_valid($1::jsonb) valid", [JSON.stringify({ ...visual, design: { family: "invalid" } })])).rows[0].valid, false);

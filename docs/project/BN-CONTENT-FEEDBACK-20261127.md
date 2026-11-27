@@ -19,8 +19,8 @@ Nenhum push, merge, migração remota ou deploy realizado. Nenhuma credencial no
 - ✅ Revisão textual preserva as configurações e imagens dos slides correspondentes por posição. Mudanças de quantidade/ordem de slides exigem conferência editorial antes de aprovar.
 - ✅ Prévia e PNGs do ZIP usam o mesmo renderizador. Falhas de imagem ou texto sem espaço impedem ZIP parcial. Conteúdos antigos continuam válidos.
 - ✅ Comparação do ACK de salvamento considera equivalência JSON, incluindo novas opções/referências quando o banco reordena suas chaves.
-- ❌ Homologação hospedada (aguardando): aplicar a migração e publicar a função/frontend apenas em ambiente de teste aprovado; validar credencial real, cotas, geração com pixels reais do provedor, leitura multimodal de referência real e reabertura autenticada dos uploads. Os testes de integração locais usam provedor e banco simulados/isolados e não comprovam a conta real.
-- ❌ Integração/publicação (aguardando): reconciliar a branch com o destino correto, revisão independente e aprovação da promoção. Não houve deploy nesta execução.
+- ✅ Homologação hospedada concluída em 27/11: geração real nas três famílias, upload e leitura multimodal de referência, persistência, reabertura, conflito de versão e navegação desktop/mobile; detalhes na seção final.
+- ✅ Publicação autorizada pelo Matheus e concluída em 27/11, com base isolada da produção e verificações finais abaixo. Main não foi mesclado: a release foi publicada pela branch específica.
 
 ## Validação local
 
@@ -28,7 +28,7 @@ Os logs completos ficam em `output/bn-content-cloud-qa/` e `/tmp/bn-feedback-*.l
 
 - Frontend: 70 testes em sete arquivos, incluindo conflitos, uploads, combinação seletiva, clique repetido e ACK JSONB reordenado.
 - Edge/provider/referências: 48 testes Deno, incluindo autenticação master, caminho privado por post, limites de arquivos, envio multimodal e rejeição de destinos fora da allowlist.
-- Banco isolado: contrato PGlite com 70 verificações; aplica também `20261127083152_bn_content_visual_options.sql`, aceita opções válidas e rejeita família inválida, além dos gates existentes de RLS/CAS/cota/storage.
+- Banco isolado: contrato PGlite com 70 verificações; aplica também `20261127095011_bn_content_visual_options.sql`, aceita opções válidas e rejeita família inválida, além dos gates existentes de RLS/CAS/cota/storage.
 - Navegador: 48 verificações aprovadas, zero falhas e fontes inalteradas durante o teste; roteiro local em Chrome a 390×844 e 1440×1000, incluindo editor real, três famílias, salvamento/reabertura, exportação PNG/ZIP, dimensões, limites do texto e ausência de overflow horizontal. APIs e autenticação simuladas.
 - TypeScript (`tsc -p tsconfig.app.json --noEmit`), lint dos componentes/testes alterados, `git diff --check` e build completo aprovados. O build final passou também nos gates de backend, consentimento semanal e orçamento do bundle.
 
@@ -56,4 +56,15 @@ Integração isolada refeita diretamente sobre a produção `5b357d57880d160d01d
 - Service worker passa de cache v19 para v20; mantém o fallback entre gerações existente.
 - Antes da produção: dois posts, checksum `1efa47c740de27271dc12bd47c442f29`. Função remota e definição do validador foram respaldadas fora dos arquivos versionados. Corpo da RPC de produção conferido contra a base revisada antes da substituição.
 
-Publicação ainda depende da conclusão dos passos remotos e da conferência final abaixo.
+### Produção confirmada
+
+- URL: https://www.settapp.com.br/master/bn-content
+- Netlify: `6b095276b1926d7fc7752724`; função `bn-content-studio` v4, JWT obrigatório preservado, todos os dez arquivos publicados conferidos contra a fonte local (incluindo o JSON editorial).
+- Migrações remotas registradas: `20261127095011_bn_content_visual_options` e `20261127095014_bn_content_nonretryable_version_conflict`. Arquivos locais e roteiro PGlite alinhados a essas versões; contrato local reexecutado com 70 verificações aprovadas.
+- Duas gravações simultâneas hospedadas: HTTP 200 e 409, incremento único de versão, 0,8 s no total; sem retry infinito.
+- Pós-publicação: rota oficial e cinco assets de entrada HTTP 200, três pranchas e service worker byte a byte iguais ao pacote, função rejeita chamada anônima com 401.
+- Posts de produção antes/depois: 2, todos válidos, checksum idêntico `1efa47c740de27271dc12bd47c442f29`. Nenhum conteúdo existente foi modificado e nenhum aluno/pagamento/WhatsApp foi alterado.
+- Conta master, posts, assets, cota e chave de provedor criados exclusivamente para a homologação são removidos ao terminar. A estrutura BN Content permanece no staging com o histórico das migrações registrado; geração de staging volta a ficar indisponível sem chave, como estava antes desta execução.
+
+As verificações foram feitas pelo executor e por testes automatizados; não houve revisor humano externo ou subagente. Não há falha funcional conhecida restante nestes testes; isso não é garantia de ausência absoluta de bugs. Uso real e links externos sujeitos a restrição do Instagram continuam conforme as limitações documentadas.
+
